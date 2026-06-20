@@ -631,8 +631,8 @@
      SUPABASE CONFIG — PASTE YOUR VALUES HERE
 ═════════════════════════════════════════ -->
 <script>
-const SUPABASE_URL  = 'https://zmoytopjameydbsdbyky.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
+const SUPABASE_URL  = 'PASTE_YOUR_PROJECT_URL_HERE';
+const SUPABASE_ANON = 'PASTE_YOUR_ANON_KEY_HERE';
 </script>
 
 <script>
@@ -746,25 +746,45 @@ function err(id, msg) {
    ONBOARDING
 ═════════════════════════════════════════ */
 let setupMode = '';
+let managerFlow = '';
 
-function showSetup(mode) {
+async function showSetup(mode) {
   setupMode = mode;
-  document.getElementById('field-join-code').style.display     = mode === 'staff' ? 'flex' : 'none';
-  document.getElementById('field-manager-pin').style.display   = mode === 'staff' ? 'none' : 'flex';
-  document.getElementById('field-team-setup').style.display    = mode === 'manager' ? 'flex' : 'none';
-  document.getElementById('field-new-code').style.display      = mode === 'manager' ? 'flex' : 'none';
-  document.getElementById('field-new-pin').style.display       = mode === 'manager' ? 'flex' : 'none';
+  err('setup-error','');
+
   if (mode === 'manager') {
+    setLoading(true, 'Checking...');
+    let teamExists = false;
+    try {
+      const check = await sb.from('teams').select('id', 'limit=1');
+      teamExists = check.ok && Array.isArray(check.data) && check.data.length > 0;
+    } catch { teamExists = false; }
+    setLoading(false);
+    managerFlow = teamExists ? 'login' : 'create';
+  }
+
+  const isManagerLogin  = mode === 'manager' && managerFlow === 'login';
+  const isManagerCreate = mode === 'manager' && managerFlow === 'create';
+
+  document.getElementById('field-join-code').style.display     = (mode === 'staff' || isManagerLogin) ? 'flex' : 'none';
+  document.getElementById('field-manager-pin').style.display   = isManagerLogin ? 'flex' : 'none';
+  document.getElementById('field-team-setup').style.display    = isManagerCreate ? 'flex' : 'none';
+  document.getElementById('field-new-code').style.display      = isManagerCreate ? 'flex' : 'none';
+  document.getElementById('field-new-pin').style.display       = isManagerCreate ? 'flex' : 'none';
+  if (isManagerCreate) {
     document.getElementById('setup-title').textContent = 'Create your team';
-    document.getElementById('setup-sub').textContent   = 'Set up your rota — staff join with the team code you choose.';
+    document.getElementById('setup-sub').textContent   = 'Set up your rota. This can only be done once.';
     document.getElementById('setup-btn').textContent   = 'Create Team';
     document.getElementById('setup-new-code').value    = randCode();
+  } else if (isManagerLogin) {
+    document.getElementById('setup-title').textContent = 'Manager login';
+    document.getElementById('setup-sub').textContent   = 'Enter your team code and manager PIN.';
+    document.getElementById('setup-btn').textContent   = 'Log In';
   } else {
     document.getElementById('setup-title').textContent = 'Join your team';
     document.getElementById('setup-sub').textContent   = 'Enter the code your manager gave you.';
     document.getElementById('setup-btn').textContent   = 'Join Team';
   }
-  err('setup-error','');
   showScreen('screen-setup');
 }
 
@@ -776,19 +796,23 @@ async function confirmSetup() {
   const name = document.getElementById('setup-name').value.trim();
   if (!name) { err('setup-error','Please enter your name'); return; }
 
-  setLoading(true, setupMode === 'manager' ? 'Creating team…' : 'Joining team…');
+  const isManagerLogin = setupMode === 'manager' && managerFlow === 'login';
+  setLoading(true, setupMode === 'manager' ? (isManagerLogin ? 'Logging in…' : 'Creating team…') : 'Joining team…');
 
   try {
-    if (setupMode === 'manager') {
+    if (setupMode === 'manager' && managerFlow === 'create') {
       const teamName = document.getElementById('setup-team').value.trim() || name + "'s Team";
       const code     = document.getElementById('setup-new-code').value.trim().toUpperCase();
       const pin      = document.getElementById('setup-new-pin').value.trim();
       if (!code || code.length < 4) { err('setup-error','Team code must be at least 4 characters'); setLoading(false); return; }
       if (!pin || pin.length < 4)   { err('setup-error','Manager PIN must be at least 4 digits'); setLoading(false); return; }
 
-      // Check code not taken
-      const check = await sb.from('teams').select('id', `team_code=eq.${code}`);
-      if (check.data && check.data.length > 0) { err('setup-error','That team code is already taken — choose another'); setLoading(false); return; }
+      // HARD GUARD: refuse to create if ANY team already exists (one-team-only rule)
+      const exists = await sb.from('teams').select('id', 'limit=1');
+      if (exists.ok && Array.isArray(exists.data) && exists.data.length > 0) {
+        err('setup-error','A team already exists. Use the manager login instead.');
+        setLoading(false); return;
+      }
 
       const res = await sb.from('teams').insert({ team_name: teamName, team_code: code, manager_pin: pin });
       if (!res.ok || !res.data?.[0]) { err('setup-error','Could not create team — check your Supabase config'); setLoading(false); return; }
@@ -798,26 +822,30 @@ async function confirmSetup() {
       persist();
       await initManager();
 
+    } else if (setupMode === 'manager' && managerFlow === 'login') {
+      const code = document.getElementById('setup-join').value.trim().toUpperCase();
+      const pin  = document.getElementById('setup-manager-pin').value.trim();
+      if (!code) { err('setup-error','Please enter your team code'); setLoading(false); return; }
+      if (!pin)  { err('setup-error','Please enter your manager PIN'); setLoading(false); return; }
+
+      const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
+      if (!res.ok || !res.data?.length) { err('setup-error','Team code not found'); setLoading(false); return; }
+      const team = res.data[0];
+      if (pin !== team.manager_pin) { err('setup-error','Incorrect manager PIN'); setLoading(false); return; }
+
+      S.mode = 'manager'; S.name = name || 'Manager'; S.teamId = team.id;
+      S.teamCode = code; S.teamName = team.team_name; S.managerPin = pin;
+      persist();
+      await initManager();
+
     } else {
       const code = document.getElementById('setup-join').value.trim().toUpperCase();
       if (!code) { err('setup-error','Please enter your team code'); setLoading(false); return; }
-
-      // Also check if it's a manager PIN login
-      const managerPin = document.getElementById('setup-manager-pin').value.trim();
 
       const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
       if (!res.ok || !res.data?.length) { err('setup-error','Team code not found — check with your manager'); setLoading(false); return; }
 
       const team = res.data[0];
-
-      // Manager logging in via staff screen with their PIN
-      if (managerPin && managerPin === team.manager_pin) {
-        S.mode = 'manager'; S.name = name; S.teamId = team.id;
-        S.teamCode = code; S.teamName = team.team_name; S.managerPin = managerPin;
-        persist();
-        await initManager();
-        return;
-      }
 
       // Register staff member
       await sb.from('staff_members').upsert({ team_id: team.id, name: name }, false);
