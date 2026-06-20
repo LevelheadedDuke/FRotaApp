@@ -532,11 +532,23 @@
   </div>
 
   <div class="scroll-body" id="mgr-tab-rota" style="display:none;">
-    <div style="padding:14px 14px 6px;display:flex;align-items:center;justify-content:space-between;">
-      <div class="t-label">Assign shifts</div>
-      <button class="btn btn-green btn-sm" onclick="saveRota()">Save Rota</button>
+    <div style="padding:12px 14px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm" onclick="openAddShift()">+ Add Shift</button>
+      <button class="btn btn-ghost btn-sm" onclick="openApplyPattern()">Apply Pattern</button>
+      <button class="btn btn-green btn-sm" style="margin-left:auto;" onclick="publishShifts()">Publish</button>
     </div>
-    <div id="rota-container"></div>
+    <div id="shifts-container"></div>
+  </div>
+
+  <div class="scroll-body" id="mgr-tab-patterns" style="display:none;">
+    <div class="section-header"><div class="t-label">Shift Presets</div>
+      <button class="btn btn-primary btn-sm" onclick="openAddPreset()">+ New Preset</button>
+    </div>
+    <div id="presets-container"></div>
+    <div class="section-header" style="margin-top:8px;"><div class="t-label">Patterns</div>
+      <button class="btn btn-primary btn-sm" onclick="openAddPattern()">+ New Pattern</button>
+    </div>
+    <div id="patterns-container"></div>
   </div>
 
   <div class="scroll-body" id="mgr-tab-staff" style="display:none;">
@@ -576,7 +588,10 @@
       <span class="nav-icon">📊</span>Overview
     </button>
     <button class="nav-item" id="mgr-nav-rota" onclick="switchMgrTab('rota')">
-      <span class="nav-icon">📋</span>Rota
+      <span class="nav-icon">📋</span>Shifts
+    </button>
+    <button class="nav-item" id="mgr-nav-patterns" onclick="switchMgrTab('patterns')">
+      <span class="nav-icon">🔁</span>Patterns
     </button>
     <button class="nav-item" id="mgr-nav-staff" onclick="switchMgrTab('staff')">
       <span class="nav-icon">👥</span>Staff
@@ -625,6 +640,97 @@
   </div>
 </div>
 
+<!-- Add/Edit Shift -->
+<div class="modal-overlay" id="modal-shift">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="shift-modal-title">Add Shift</div>
+    <div class="field"><label>Use a preset (optional)</label>
+      <select id="shift-preset-pick" onchange="applyPresetToShiftForm()">
+        <option value="">— Custom —</option>
+      </select>
+    </div>
+    <div class="field"><label>Label</label><input type="text" id="shift-label" placeholder="e.g. Morning"></div>
+    <div style="display:flex;gap:12px;">
+      <div class="field" style="flex:1;"><label>From</label><input type="time" id="shift-start" value="09:00"></div>
+      <div class="field" style="flex:1;"><label>To</label><input type="time" id="shift-end" value="13:00"></div>
+    </div>
+    <div class="field"><label>Staff needed</label><input type="text" inputmode="numeric" id="shift-needed" value="1"></div>
+    <div class="field"><label>Date</label><input type="text" id="shift-date" readonly></div>
+    <div id="shift-modal-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-shift')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmShift()">Save Shift</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Preset -->
+<div class="modal-overlay" id="modal-preset">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">New Preset</div>
+    <div class="field"><label>Label</label><input type="text" id="preset-label" placeholder="e.g. Morning"></div>
+    <div style="display:flex;gap:12px;">
+      <div class="field" style="flex:1;"><label>From</label><input type="time" id="preset-start" value="09:00"></div>
+      <div class="field" style="flex:1;"><label>To</label><input type="time" id="preset-end" value="13:00"></div>
+    </div>
+    <div class="field"><label>Staff needed</label><input type="text" inputmode="numeric" id="preset-needed" value="1"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-preset')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmPreset()">Save Preset</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Pattern -->
+<div class="modal-overlay" id="modal-pattern">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">New Pattern</div>
+    <div class="field"><label>Pattern name</label><input type="text" id="pattern-label" placeholder="e.g. Weekday"></div>
+    <div class="t-label">Shifts in this pattern</div>
+    <div id="pattern-build-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div class="field"><label>Add a shift from preset</label>
+      <select id="pattern-preset-pick">
+        <option value="">— choose preset —</option>
+      </select>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="addPresetToPattern()">+ Add to pattern</button>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-pattern')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmPattern()">Save Pattern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Apply Pattern -->
+<div class="modal-overlay" id="modal-apply">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Apply Pattern</div>
+    <div class="field"><label>Pattern</label>
+      <select id="apply-pattern-pick"><option value="">— choose —</option></select>
+    </div>
+    <div style="display:flex;gap:12px;">
+      <div class="field" style="flex:1;"><label>From date</label><input type="text" id="apply-from" placeholder="YYYY-MM-DD"></div>
+      <div class="field" style="flex:1;"><label>To date</label><input type="text" id="apply-to" placeholder="YYYY-MM-DD"></div>
+    </div>
+    <div class="field"><label>Apply on</label>
+      <select id="apply-which">
+        <option value="all">Every day in range</option>
+        <option value="weekdays">Weekdays only (Mon–Fri)</option>
+        <option value="weekends">Weekends only (Sat–Sun)</option>
+      </select>
+    </div>
+    <div id="apply-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-apply')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmApplyPattern()">Apply</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ════════════════════════════════════════
@@ -650,7 +756,7 @@ const sb = (() => {
     from: (table) => ({
       select: (cols = '*', params = '') => q(`${table}?select=${cols}${params ? '&' + params : ''}`),
       insert: (body) => q(table, { method: 'POST', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'return=representation' } }),
-      upsert: (body) => q(table, { method: 'POST', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'return=representation,resolution=merge-duplicates' } }),
+      upsert: (body, onConflict) => q(`${table}${onConflict ? '?on_conflict=' + onConflict : ''}`, { method: 'POST', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'resolution=merge-duplicates,return=minimal' } }),
       update: (body, params) => q(`${table}?${params}`, { method: 'PATCH', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'return=representation' } }),
       delete: (params) => q(`${table}?${params}`, { method: 'DELETE' }),
     }),
@@ -676,6 +782,11 @@ const S = {
   staffAvail: {},       // { staffName: { 'YYYY-MM-DD': { slots, holiday } } }
   rota: {},             // { 'YYYY-MM-DD': [ { slot_idx, staff_name, start, end } ] }
   staffList: [],        // [ { name } ]
+  presets: [],          // shift presets
+  patterns: [],         // [ { id, label, shifts:[...] } ]
+  shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
+  patternBuild: [],     // shifts being assembled in the New Pattern modal
+  editingShiftId: null,
   slotType: 'available',
   mgrTab: 'overview',
   staffTab: 'avail',
@@ -852,7 +963,7 @@ async function confirmSetup() {
       const team = res.data[0];
 
       // Register staff member
-      await sb.from('staff_members').upsert({ team_id: team.id, name: name }, false);
+      await sb.from('staff_members').upsert({ team_id: team.id, name: name }, 'team_id,name');
       S.mode = 'staff'; S.name = name; S.teamId = team.id;
       S.teamCode = code; S.teamName = team.team_name;
       persist();
@@ -1057,15 +1168,23 @@ async function toggleHoliday() {
 
 /* ── Shifts tab ── */
 async function loadMyShifts() {
-  const res = await sb.from('rota_assignments').select('*',
-    `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=gte.${ds(new Date())}&order=date.asc`
-  );
   const list = document.getElementById('shifts-list');
-  if (!res.ok || !res.data?.length) {
+  // Get this staff member's assignments, then the matching shift details
+  const asg = await sb.from('shift_assignments').select('*',
+    `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}`);
+  if (!asg.ok || !asg.data?.length) {
     list.innerHTML = '<div class="empty-state"><div class="ei">📋</div><div>No shifts scheduled yet.</div><div class="et">Check back once your manager builds the rota.</div></div>';
     return;
   }
-  list.innerHTML = res.data.map(r => {
+  const shiftIds = asg.data.map(a => a.shift_id);
+  const today = ds(new Date());
+  const shf = await sb.from('shifts').select('*',
+    `team_id=eq.${S.teamId}&id=in.(${shiftIds.join(',')})&date=gte.${today}&order=date.asc`);
+  if (!shf.ok || !shf.data?.length) {
+    list.innerHTML = '<div class="empty-state"><div class="ei">📋</div><div>No upcoming shifts.</div><div class="et">Past shifts aren\'t shown here.</div></div>';
+    return;
+  }
+  list.innerHTML = shf.data.map(r => {
     const d = new Date(r.date + 'T12:00:00');
     return `<div class="shift-card">
       <div class="shift-date-block">
@@ -1074,7 +1193,7 @@ async function loadMyShifts() {
         <div class="shift-mon">${MON_S[d.getMonth()]}</div>
       </div>
       <div>
-        <div class="shift-times">${r.start_time || '?'} – ${r.end_time || '?'}</div>
+        <div class="shift-times">${r.label ? r.label+' · ' : ''}${(r.start_time||'').slice(0,5)} – ${(r.end_time||'').slice(0,5)}</div>
         <div class="shift-status"><span class="badge badge-green">Confirmed</span></div>
       </div>
     </div>`;
@@ -1113,6 +1232,7 @@ async function initManager() {
 
   await fetchAllAvail();
   renderMgrOverview();
+  renderShifts();
   setLoading(false);
   showScreen('screen-manager');
   startMgrPolling();
@@ -1144,13 +1264,42 @@ async function fetchAllAvail() {
   // Staff list
   const st = await sb.from('staff_members').select('*', `team_id=eq.${S.teamId}&order=name.asc`);
   S.staffList = (st.ok && st.data) ? st.data : Object.keys(S.staffAvail).map(n => ({ name: n }));
+
+  // Presets
+  const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
+  S.presets = (pr.ok && pr.data) ? pr.data : [];
+
+  // Patterns + their shifts
+  const pt = await sb.from('patterns').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
+  S.patterns = [];
+  if (pt.ok && pt.data) {
+    for (const pat of pt.data) {
+      const ps = await sb.from('pattern_shifts').select('*', `pattern_id=eq.${pat.id}&order=start_time.asc`);
+      S.patterns.push({ id: pat.id, label: pat.label, shifts: (ps.ok && ps.data) ? ps.data : [] });
+    }
+  }
+
+  // Scheduled shifts + assignments
+  const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
+  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}`);
+  const asgByShift = {};
+  if (asg.ok && asg.data) asg.data.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
+  S.shifts = {};
+  if (shf.ok && shf.data) {
+    shf.data.forEach(s => {
+      (S.shifts[s.date] ||= []).push({
+        id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
+        needed: s.staff_needed || 1, assigned: asgByShift[s.id] || []
+      });
+    });
+  }
 }
 
 function startMgrPolling() {
   S.realtimeSub = setInterval(async () => {
     await fetchAllAvail();
     if (S.mgrTab === 'overview') renderMgrOverview();
-    if (S.mgrTab === 'rota')     renderRotaBuilder();
+    if (S.mgrTab === 'rota')     renderShifts();
     if (S.mgrTab === 'staff')    renderStaffListMgr();
   }, 15000);
 }
@@ -1159,7 +1308,7 @@ function shiftMgrWeek(dir) {
   S.mgrWeekStart.setDate(S.mgrWeekStart.getDate() + dir * 7);
   document.getElementById('mgr-week-label').textContent = weekLabel(S.mgrWeekStart);
   if (S.mgrTab === 'overview') renderMgrOverview();
-  if (S.mgrTab === 'rota')     renderRotaBuilder();
+  if (S.mgrTab === 'rota')     renderShifts();
 }
 
 /* ── Overview table ── */
@@ -1190,92 +1339,318 @@ function renderMgrOverview() {
   }).join('');
 }
 
-/* ── Rota builder ── */
-function renderRotaBuilder() {
+/* ── Helpers ── */
+function timeOverlapsAvail(name, dstr, start, end) {
+  const av = S.staffAvail[name]?.[dstr];
+  if (!av || av.holiday) return false;
+  // staff is eligible if any availability slot fully contains the shift window
+  return av.slots?.some(s => s.type === 'available' && s.start <= start && s.end >= end);
+}
+
+/* ── SHIFTS (scheduled, per-day, multi-person) ── */
+function renderShifts() {
   const days = weekDays(S.mgrWeekStart);
-  const container = document.getElementById('rota-container');
-  const names = Object.keys(S.staffAvail);
+  const container = document.getElementById('shifts-container');
   container.innerHTML = '';
 
   days.forEach(d => {
     const dstr = ds(d);
-    const availableStaff = names.filter(n => {
-      const av = S.staffAvail[n]?.[dstr];
-      return av && av.slots?.some(s => s.type === 'available') && !av.holiday;
-    });
-    if (!availableStaff.length) return;
-
-    // Gather unique time slots across all available staff
-    const allSlots = [];
-    availableStaff.forEach(name => {
-      S.staffAvail[name]?.[dstr]?.slots?.filter(s=>s.type==='available').forEach(s => {
-        if (!allSlots.find(x => x.start===s.start && x.end===s.end)) allSlots.push({ start:s.start, end:s.end });
-      });
-    });
-    allSlots.sort((a,b) => a.start.localeCompare(b.start));
+    const dayShifts = (S.shifts[dstr] || []).slice().sort((a,b) => a.start.localeCompare(b.start));
 
     const block = document.createElement('div');
     block.className = 'rota-day-block';
 
-    const assigned = S.rota[dstr] || [];
-    const rows = allSlots.map((slot, i) => {
-      const curAssignment = assigned.find(a => a.start === slot.start && a.end === slot.end);
-      const curName = curAssignment?.staff_name || '';
-      const eligibleStaff = availableStaff.filter(n => {
-        const avail = S.staffAvail[n]?.[dstr];
-        return avail?.slots?.some(s => s.start <= slot.start && s.end >= slot.end);
-      });
-      const opts = `<option value="">— Unassigned —</option>` +
-        eligibleStaff.map(n => `<option value="${n}" ${curName===n?'selected':''}>${n}</option>`).join('');
-      const availPills = eligibleStaff.map(n => `<span class="avail-pill">${n}</span>`).join(' ');
-      return `<div class="rota-slot-row">
-        <div class="rota-time">${slot.start}–${slot.end}</div>
-        <select class="rota-select" onchange="assignShift('${dstr}','${slot.start}','${slot.end}',this.value)">${opts}</select>
-      </div>`;
-    }).join('');
-
-    block.innerHTML = `<div class="rota-day-hdr">
+    let inner = `<div class="rota-day-hdr">
         <span style="font-weight:700">${DAY_L[d.getDay()]}, ${shortFmt(d)}</span>
-        <span class="badge badge-blue">${availableStaff.length} available</span>
-      </div>${rows}`;
+        <button class="btn btn-ghost btn-sm" onclick="openAddShift('${dstr}')">+ Shift</button>
+      </div>`;
+
+    if (!dayShifts.length) {
+      inner += `<div style="padding:12px 14px;font-size:0.82rem;color:var(--muted);">No shifts. Tap “+ Shift” or apply a pattern.</div>`;
+    } else {
+      dayShifts.forEach(sh => {
+        // One assignment row per person needed
+        let rows = '';
+        for (let i = 0; i < sh.needed; i++) {
+          const cur = sh.assigned[i] || '';
+          const eligible = Object.keys(S.staffAvail).filter(n => timeOverlapsAvail(n, dstr, sh.start, sh.end));
+          // keep already-assigned name selectable even if availability changed
+          const names = [...new Set([...eligible, ...(cur ? [cur] : [])])].sort();
+          const taken = sh.assigned.filter((a,idx) => a && idx !== i);
+          const opts = `<option value="">— Unassigned —</option>` +
+            names.map(n => {
+              const dis = taken.includes(n) ? 'disabled' : '';
+              return `<option value="${n}" ${cur===n?'selected':''} ${dis}>${n}</option>`;
+            }).join('');
+          rows += `<div class="rota-slot-row">
+            <div class="rota-time">${i===0 ? sh.start+'–'+sh.end : ''}</div>
+            <select class="rota-select" onchange="assignToShift('${sh.id}',${i},this.value)">${opts}</select>
+          </div>`;
+        }
+        const filled = sh.assigned.filter(Boolean).length;
+        inner += `<div style="border-top:1px solid var(--rim);">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px 2px;">
+            <span style="font-size:0.8rem;font-weight:700;color:var(--ghost);">${sh.label || 'Shift'} · ${sh.start}–${sh.end}</span>
+            <span style="display:flex;gap:8px;align-items:center;">
+              <span class="badge ${filled>=sh.needed?'badge-green':'badge-amber'}">${filled}/${sh.needed}</span>
+              <button class="btn btn-danger btn-sm" onclick="deleteShift('${sh.id}','${dstr}')">✕</button>
+            </span>
+          </div>${rows}</div>`;
+      });
+    }
+
+    block.innerHTML = inner;
     container.appendChild(block);
   });
+}
 
-  if (!container.children.length) {
-    container.innerHTML = '<div class="empty-state"><div class="ei">📋</div><div>No availability logged for this week.</div><div class="et">Staff need to add their availability first.</div></div>';
+function assignToShift(shiftId, slotIdx, name) {
+  for (const dstr in S.shifts) {
+    const sh = S.shifts[dstr].find(x => x.id === shiftId);
+    if (sh) {
+      sh.assigned[slotIdx] = name;
+      sh.assigned = sh.assigned.filter(Boolean); // compact
+      break;
+    }
+  }
+  renderShifts();
+  saveShiftAssignments(shiftId);
+}
+
+async function saveShiftAssignments(shiftId) {
+  let sh = null;
+  for (const dstr in S.shifts) { const f = S.shifts[dstr].find(x=>x.id===shiftId); if (f){sh=f;break;} }
+  if (!sh) return;
+  await sb.from('shift_assignments').delete(`shift_id=eq.${shiftId}`);
+  for (const name of sh.assigned.filter(Boolean)) {
+    await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
   }
 }
 
-function assignShift(date, start, end, staffName) {
-  if (!S.rota[date]) S.rota[date] = [];
-  const existing = S.rota[date].findIndex(r => r.start === start && r.end === end);
-  if (existing >= 0) {
-    if (staffName) S.rota[date][existing].staff_name = staffName;
-    else S.rota[date].splice(existing, 1);
-  } else if (staffName) {
-    S.rota[date].push({ staff_name: staffName, start, end });
-  }
+/* ── Add / edit a single shift ── */
+function openAddShift(dstr) {
+  S.editingShiftId = null;
+  const date = dstr || S.selectedMgrDate || ds(S.mgrWeekStart);
+  document.getElementById('shift-modal-title').textContent = 'Add Shift';
+  document.getElementById('shift-date').value = date;
+  document.getElementById('shift-label').value = '';
+  document.getElementById('shift-start').value = '09:00';
+  document.getElementById('shift-end').value = '13:00';
+  document.getElementById('shift-needed').value = '1';
+  // populate preset dropdown
+  const pick = document.getElementById('shift-preset-pick');
+  pick.innerHTML = '<option value="">— Custom —</option>' +
+    S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+  err('shift-modal-error','');
+  openModal('modal-shift');
 }
 
-async function saveRota() {
-  setLoading(true, 'Saving rota…');
-  // Delete existing rota for this week and re-insert
-  const days = weekDays(S.mgrWeekStart);
-  for (const d of days) {
+function applyPresetToShiftForm() {
+  const id = document.getElementById('shift-preset-pick').value;
+  const p = S.presets.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('shift-label').value  = p.label;
+  document.getElementById('shift-start').value  = p.start_time.slice(0,5);
+  document.getElementById('shift-end').value    = p.end_time.slice(0,5);
+  document.getElementById('shift-needed').value = String(p.staff_needed || 1);
+}
+
+async function confirmShift() {
+  const date   = document.getElementById('shift-date').value;
+  const label  = document.getElementById('shift-label').value.trim();
+  const start  = document.getElementById('shift-start').value;
+  const end    = document.getElementById('shift-end').value;
+  const needed = Math.max(1, parseInt(document.getElementById('shift-needed').value) || 1);
+  if (!start || !end || start >= end) { err('shift-modal-error','End time must be after start time'); return; }
+
+  const res = await sb.from('shifts').insert({
+    team_id: S.teamId, date, label: label || null,
+    start_time: start, end_time: end, staff_needed: needed
+  });
+  if (res.ok && res.data?.[0]) {
+    (S.shifts[date] ||= []).push({ id: res.data[0].id, label, start, end, needed, assigned: [] });
+  }
+  closeModal('modal-shift');
+  renderShifts();
+  toast('Shift added');
+}
+
+async function deleteShift(shiftId, dstr) {
+  await sb.from('shifts').delete(`id=eq.${shiftId}`);
+  if (S.shifts[dstr]) S.shifts[dstr] = S.shifts[dstr].filter(s => s.id !== shiftId);
+  renderShifts();
+  toast('Shift removed');
+}
+
+async function publishShifts() {
+  // Shifts + assignments are already saved live; this is a confirmation action
+  toast('✅ Published — staff can see their shifts');
+}
+
+/* ── PRESETS ── */
+function renderPresets() {
+  const c = document.getElementById('presets-container');
+  if (!S.presets.length) {
+    c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No presets yet. Create reusable shift times like “Morning 09:00–13:00”.</div></div>';
+    return;
+  }
+  c.innerHTML = S.presets.map(p => `<div class="staff-card">
+      <div><div class="staff-name">${p.label}</div>
+      <div class="staff-meta">${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)} · needs ${p.staff_needed}</div></div>
+      <div class="staff-right"><button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button></div>
+    </div>`).join('');
+}
+
+function openAddPreset() {
+  document.getElementById('preset-label').value = '';
+  document.getElementById('preset-start').value = '09:00';
+  document.getElementById('preset-end').value = '13:00';
+  document.getElementById('preset-needed').value = '1';
+  openModal('modal-preset');
+}
+
+async function confirmPreset() {
+  const label  = document.getElementById('preset-label').value.trim();
+  const start  = document.getElementById('preset-start').value;
+  const end    = document.getElementById('preset-end').value;
+  const needed = Math.max(1, parseInt(document.getElementById('preset-needed').value) || 1);
+  if (!label) { toast('Give the preset a name'); return; }
+  if (!start || !end || start >= end) { toast('End time must be after start'); return; }
+  const res = await sb.from('shift_presets').insert({
+    team_id: S.teamId, label, start_time: start, end_time: end, staff_needed: needed
+  });
+  if (res.ok && res.data?.[0]) S.presets.push(res.data[0]);
+  closeModal('modal-preset');
+  renderPresets();
+  toast('Preset saved');
+}
+
+async function deletePreset(id) {
+  await sb.from('shift_presets').delete(`id=eq.${id}`);
+  S.presets = S.presets.filter(p => p.id !== id);
+  renderPresets();
+}
+
+/* ── PATTERNS ── */
+function renderPatterns() {
+  const c = document.getElementById('patterns-container');
+  if (!S.patterns.length) {
+    c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No patterns yet. Group shifts into a reusable day template like “Weekday” or “Event Day”.</div></div>';
+    return;
+  }
+  c.innerHTML = S.patterns.map(p => {
+    const shiftSummary = p.shifts.map(s => `${s.label||'Shift'} ${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}×${s.staff_needed}`).join(' · ') || 'No shifts';
+    return `<div class="staff-card">
+      <div style="flex:1;"><div class="staff-name">${p.label}</div>
+      <div class="staff-meta">${shiftSummary}</div></div>
+      <div class="staff-right"><button class="btn btn-danger btn-sm" onclick="deletePattern('${p.id}')">Delete</button></div>
+    </div>`;
+  }).join('');
+}
+
+function openAddPattern() {
+  S.patternBuild = [];
+  document.getElementById('pattern-label').value = '';
+  renderPatternBuild();
+  const pick = document.getElementById('pattern-preset-pick');
+  pick.innerHTML = '<option value="">— choose preset —</option>' +
+    S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+  openModal('modal-pattern');
+}
+
+function renderPatternBuild() {
+  const c = document.getElementById('pattern-build-list');
+  if (!S.patternBuild.length) { c.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">No shifts added yet.</div>'; return; }
+  c.innerHTML = S.patternBuild.map((s,i) => `<div class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;">
+      <div class="rota-time">${s.start.slice(0,5)}–${s.end.slice(0,5)}</div>
+      <div style="flex:1;font-size:0.82rem;">${s.label||'Shift'} · needs ${s.needed}</div>
+      <button class="btn btn-danger btn-sm" onclick="removePatternBuild(${i})">✕</button>
+    </div>`).join('');
+}
+
+function addPresetToPattern() {
+  const id = document.getElementById('pattern-preset-pick').value;
+  const p = S.presets.find(x => x.id === id);
+  if (!p) { toast('Choose a preset first'); return; }
+  S.patternBuild.push({ label: p.label, start: p.start_time, end: p.end_time, needed: p.staff_needed || 1 });
+  renderPatternBuild();
+}
+
+function removePatternBuild(i) { S.patternBuild.splice(i,1); renderPatternBuild(); }
+
+async function confirmPattern() {
+  const label = document.getElementById('pattern-label').value.trim();
+  if (!label) { toast('Give the pattern a name'); return; }
+  if (!S.patternBuild.length) { toast('Add at least one shift'); return; }
+  const res = await sb.from('patterns').insert({ team_id: S.teamId, label });
+  if (!res.ok || !res.data?.[0]) { toast('Could not save pattern'); return; }
+  const patternId = res.data[0].id;
+  const shifts = [];
+  for (const s of S.patternBuild) {
+    const r = await sb.from('pattern_shifts').insert({
+      pattern_id: patternId, label: s.label, start_time: s.start, end_time: s.end, staff_needed: s.needed
+    });
+    if (r.ok && r.data?.[0]) shifts.push(r.data[0]);
+  }
+  S.patterns.push({ id: patternId, label, shifts });
+  closeModal('modal-pattern');
+  renderPatterns();
+  toast('Pattern saved');
+}
+
+async function deletePattern(id) {
+  await sb.from('patterns').delete(`id=eq.${id}`);
+  S.patterns = S.patterns.filter(p => p.id !== id);
+  renderPatterns();
+}
+
+/* ── APPLY PATTERN over a date range ── */
+function openApplyPattern() {
+  const pick = document.getElementById('apply-pattern-pick');
+  pick.innerHTML = '<option value="">— choose —</option>' +
+    S.patterns.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+  document.getElementById('apply-from').value = ds(S.mgrWeekStart);
+  const wkEnd = new Date(S.mgrWeekStart); wkEnd.setDate(wkEnd.getDate()+6);
+  document.getElementById('apply-to').value = ds(wkEnd);
+  err('apply-error','');
+  openModal('modal-apply');
+}
+
+async function confirmApplyPattern() {
+  const patternId = document.getElementById('apply-pattern-pick').value;
+  const from = document.getElementById('apply-from').value.trim();
+  const to   = document.getElementById('apply-to').value.trim();
+  const which = document.getElementById('apply-which').value;
+  const pat = S.patterns.find(p => p.id === patternId);
+  if (!pat) { err('apply-error','Choose a pattern'); return; }
+  const fromD = new Date(from + 'T12:00:00'), toD = new Date(to + 'T12:00:00');
+  if (isNaN(fromD) || isNaN(toD) || fromD > toD) { err('apply-error','Check your date range (YYYY-MM-DD)'); return; }
+
+  setLoading(true, 'Applying pattern…');
+  let count = 0;
+  for (let d = new Date(fromD); d <= toD; d.setDate(d.getDate()+1)) {
+    const dow = d.getDay(); // 0 Sun .. 6 Sat
+    if (which === 'weekdays' && (dow === 0 || dow === 6)) continue;
+    if (which === 'weekends' && dow !== 0 && dow !== 6) continue;
     const dstr = ds(d);
-    await sb.from('rota_assignments').delete(`team_id=eq.${S.teamId}&date=eq.${dstr}`);
-    const entries = S.rota[dstr] || [];
-    for (const e of entries) {
-      if (e.staff_name) {
-        await sb.from('rota_assignments').insert({
-          team_id: S.teamId, date: dstr,
-          staff_name: e.staff_name, start_time: e.start, end_time: e.end
+    for (const s of pat.shifts) {
+      const res = await sb.from('shifts').insert({
+        team_id: S.teamId, date: dstr, label: s.label,
+        start_time: s.start_time, end_time: s.end_time, staff_needed: s.staff_needed
+      });
+      if (res.ok && res.data?.[0]) {
+        (S.shifts[dstr] ||= []).push({
+          id: res.data[0].id, label: s.label, start: s.start_time, end: s.end_time,
+          needed: s.staff_needed, assigned: []
         });
+        count++;
       }
     }
   }
   setLoading(false);
-  toast('✅ Rota saved — staff can now see their shifts');
+  closeModal('modal-apply');
+  renderShifts();
+  toast(`✅ Added ${count} shift${count!==1?'s':''}`);
 }
 
 /* ── Staff list (manager) ── */
@@ -1299,13 +1674,16 @@ function renderStaffListMgr() {
 /* ── Manager tabs ── */
 function switchMgrTab(tab) {
   S.mgrTab = tab;
-  ['overview','rota','staff','settings'].forEach(t => {
-    document.getElementById(`mgr-tab-${t}`).style.display = t === tab ? 'block' : 'none';
-    document.getElementById(`mgr-nav-${t}`).className = 'nav-item' + (t === tab ? ' active' : '');
+  ['overview','rota','patterns','staff','settings'].forEach(t => {
+    const el = document.getElementById(`mgr-tab-${t}`);
+    if (el) el.style.display = t === tab ? 'block' : 'none';
+    const nav = document.getElementById(`mgr-nav-${t}`);
+    if (nav) nav.className = 'nav-item' + (t === tab ? ' active' : '');
   });
   document.getElementById('mgr-week-nav').style.display = ['overview','rota'].includes(tab) ? 'flex' : 'none';
   if (tab === 'overview') renderMgrOverview();
-  if (tab === 'rota')     renderRotaBuilder();
+  if (tab === 'rota')     renderShifts();
+  if (tab === 'patterns') { renderPresets(); renderPatterns(); }
   if (tab === 'staff')    renderStaffListMgr();
 }
 
