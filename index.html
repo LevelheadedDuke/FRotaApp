@@ -752,6 +752,10 @@ async function showSetup(mode) {
   setupMode = mode;
   err('setup-error','');
 
+  // Clear any previously entered values so nothing carries over between logins
+  ['setup-name','setup-join','setup-manager-pin','setup-team','setup-new-code','setup-new-pin']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+
   if (mode === 'manager') {
     setLoading(true, 'Checking...');
     let teamExists = false;
@@ -1328,6 +1332,9 @@ function doLogout() {
   clearInterval(S.realtimeSub);
   sessionStorage.removeItem('rota_session');
   Object.assign(S, { mode:null, name:'', teamId:null, teamCode:'', teamName:'', managerPin:'' });
+  // Wipe all setup fields so no name/PIN/code lingers for the next person
+  ['setup-name','setup-join','setup-manager-pin','setup-team','setup-new-code','setup-new-pin']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   closeModal('modal-logout');
   showScreen('screen-splash');
 }
