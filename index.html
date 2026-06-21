@@ -394,7 +394,7 @@
       padding: 4px 2px 10px; display: flex; align-items: center; gap: 8px;
     }
     .dept-title .dept-dot { width: 10px; height: 10px; border-radius: 3px; }
-    .grid-scroll { overflow-x: auto; border: 1px solid var(--rim); border-radius: var(--r); -webkit-overflow-scrolling: touch; }
+    .grid-scroll { overflow-x: auto; overflow-y: visible; border: 1px solid var(--rim); border-radius: var(--r); -webkit-overflow-scrolling: touch; }
     table.rota-grid { border-collapse: collapse; width: 100%; min-width: 760px; }
     table.rota-grid th, table.rota-grid td {
       border-right: 1px solid var(--rim); border-bottom: 1px solid var(--rim);
@@ -426,13 +426,14 @@
     }
     .grid-staffcell .gs-name { font-size: 0.8rem; font-weight: 700; line-height: 1.2; }
     .grid-cell {
-      padding: 4px; text-align: center; height: 56px;
+      padding: 4px; text-align: center; min-height: 56px;
+      vertical-align: top;
       cursor: pointer; transition: background 0.12s; position: relative;
     }
     .grid-cell:hover { background: var(--night-3); }
     .cell-shift {
-      border-radius: 6px; padding: 5px 4px; font-size: 0.72rem; line-height: 1.35;
-      font-weight: 600; height: 100%; display: flex; flex-direction: column;
+      border-radius: 6px; padding: 5px 4px; font-size: 0.72rem; line-height: 1.3;
+      font-weight: 600; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 1px;
     }
     .cell-shift.k  { background: rgba(79,124,255,0.14);  color: #aaccff; border: 1px solid rgba(79,124,255,0.3); }
@@ -440,10 +441,10 @@
     .cell-shift .cs-label { font-weight: 800; }
     .cell-shift .cs-time  { opacity: 0.9; font-weight: 600; }
     .cell-off {
-      border-radius: 6px; padding: 5px; font-size: 0.72rem; font-weight: 700;
+      border-radius: 6px; padding: 8px 5px; font-size: 0.72rem; font-weight: 700;
       background: var(--amber-dim); color: var(--amber);
       border: 1px solid rgba(245,166,35,0.3);
-      height: 100%; display: flex; align-items: center; justify-content: center;
+      display: flex; align-items: center; justify-content: center;
     }
     .cell-add { color: var(--rim); font-size: 1.1rem; font-weight: 400; }
     .cell-shift + .cell-shift { margin-top: 3px; }
@@ -1672,7 +1673,7 @@ function onPatternDragEnd(ev) {
 function onCellDragOver(ev) {
   if (S.draggedPatternId) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; }
 }
-function onCellDrop(ev, encName, dstr) {
+function onCellDrop(ev, encName, dstr, deptKey) {
   ev.preventDefault();
   const id = S.draggedPatternId || ev.dataTransfer.getData('text/plain');
   if (!id) return;
@@ -1755,8 +1756,25 @@ function staffDepartment(name) {
 }
 
 function shiftsForStaffDay(name, dstr) {
-  // shifts on this date that this staff member is assigned to
+  // shifts on this date that this staff member is assigned to (ALL departments)
   return (S.shifts[dstr] || []).filter(sh => (sh.assigned || []).includes(name));
+}
+
+// A shift's effective department: its own tag, else fall back to the person's default
+function shiftDept(sh, name) {
+  return sh.department || staffDepartment(name);
+}
+
+// Shifts for this person/day that belong to a given department
+function shiftsForStaffDayDept(name, dstr, deptKey) {
+  return shiftsForStaffDay(name, dstr).filter(sh => shiftDept(sh, name) === deptKey);
+}
+
+// Does this person have ANY shift of this department in the visible week?
+function staffHasDeptThisWeek(name, deptKey) {
+  return weekDays(S.mgrWeekStart).map(ds).some(dstr =>
+    shiftsForStaffDayDept(name, dstr, deptKey).length > 0
+  );
 }
 
 /* ── OVERLAP DETECTION ──
@@ -1803,6 +1821,12 @@ function weeklyHoursFor(name) {
   days.forEach(dstr => shiftsForStaffDay(name, dstr).forEach(sh => { total += shiftHours(sh); }));
   return total;
 }
+function weeklyHoursForDept(name, deptKey) {
+  const days = weekDays(S.mgrWeekStart).map(ds);
+  let total = 0;
+  days.forEach(dstr => shiftsForStaffDayDept(name, dstr, deptKey).forEach(sh => { total += shiftHours(sh); }));
+  return total;
+}
 function fmtHours(h) {
   if (!h) return '0';
   const whole = Math.floor(h);
@@ -1826,7 +1850,7 @@ function renderShifts() {
   const today = ds(new Date());
 
   depts.forEach(dept => {
-    const names = allNames.filter(n => staffDepartment(n) === dept.key).sort();
+    const names = allNames.filter(n => staffDepartment(n) === dept.key || staffHasDeptThisWeek(n, dept.key)).sort();
 
     const block = document.createElement('div');
     block.className = 'dept-block';
@@ -1857,13 +1881,14 @@ function renderShifts() {
       days.forEach(d => {
         const dstr = ds(d);
         const av = S.staffAvail[name]?.[dstr];
-        const myShifts = shiftsForStaffDay(name, dstr);
+        // only this department's shifts show in this row's cell
+        const myShifts = shiftsForStaffDayDept(name, dstr, dept.key);
         const enc = encodeURIComponent(name);
+        // clash is checked across ALL of this person's shifts that day (both departments)
+        const clash = dayHasClash(name, dstr);
         let content;
         if (myShifts.length) {
-          // Group shifts: pattern-applied ones collapse into a single named block,
-          // standalone shifts each render on their own.
-          const groups = [];           // ordered list of {type:'pattern'|'single', ...}
+          const groups = [];
           const seenGroups = {};
           myShifts.forEach(sh => {
             if (sh.patternGroup) {
@@ -1887,8 +1912,7 @@ function renderShifts() {
               <span class="cs-label">${lbl}</span>
               <span class="cs-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span></div>`;
           }).join('');
-          const clash = dayHasClash(name, dstr);
-          const clashBadge = clash ? `<div class="cell-clash" title="Overlapping shifts">⚠ Overlap</div>` : '';
+          const clashBadge = clash ? `<div class="cell-clash" title="This person has overlapping shifts today (across departments)">⚠ Overlap</div>` : '';
           content = `${clashBadge}${blocks}<div class="cell-more" onclick="event.stopPropagation(); openDayMenu('${enc}','${dstr}')">+ add</div>`;
         } else if (av && av.holiday) {
           content = `<div class="cell-off">Day Off</div>`;
@@ -1896,10 +1920,10 @@ function renderShifts() {
           content = `<span class="cell-add">+</span>`;
         }
         const dropReady = S.pickedPatternId && !(av && av.holiday);
-        const hasClash = myShifts.length && dayHasClash(name, dstr);
-        cells += `<td class="grid-cell ${dropReady?'drop-ready':''} ${hasClash?'cell-has-clash':''}" onclick="onCellClick('${enc}','${dstr}')" ondragover="onCellDragOver(event)" ondrop="onCellDrop(event,'${enc}','${dstr}')">${content}</td>`;
+        const hasClash = myShifts.length && clash;
+        cells += `<td class="grid-cell ${dropReady?'drop-ready':''} ${hasClash?'cell-has-clash':''}" onclick="onCellClick('${enc}','${dstr}','${dept.key}')" ondragover="onCellDragOver(event)" ondrop="onCellDrop(event,'${enc}','${dstr}','${dept.key}')">${content}</td>`;
       });
-      const wk = weeklyHoursFor(name);
+      const wk = weeklyHoursForDept(name, dept.key);
       rows += `<tr>
         <td class="grid-staffcell"><span class="gs-avatar">${initials}</span><span class="gs-name">${name}</span></td>
         ${cells}
@@ -1914,7 +1938,7 @@ function renderShifts() {
 
 // Click a grid cell: if the person already has a shift that day, offer to remove it;
 // otherwise open the add-shift modal pre-filled with this person + day.
-function onCellClick(encName, dstr) {
+function onCellClick(encName, dstr, deptKey) {
   const name = decodeURIComponent(encName);
 
   // If a pattern is picked up (tap-to-apply), apply it to this cell
@@ -1923,29 +1947,29 @@ function onCellClick(encName, dstr) {
     return;
   }
 
-  // Empty cell → open the day menu (add shift / apply pattern).
-  // (Filled shifts are edited via their own block click; the "+ add" affordance also opens this.)
-  const existing = shiftsForStaffDay(name, dstr);
+  // Empty cell in THIS department → open the day menu (carries the department)
+  const existing = shiftsForStaffDayDept(name, dstr, deptKey);
   if (!existing.length) {
-    openDayMenu(encName, dstr);
+    openDayMenu(encName, dstr, deptKey);
   }
 }
 
 /* ── DAY MENU ── */
-let dayMenuCtx = { name: '', dstr: '' };
-function openDayMenu(encName, dstr) {
-  dayMenuCtx = { name: decodeURIComponent(encName), dstr };
+let dayMenuCtx = { name: '', dstr: '', dept: 'foh' };
+function openDayMenu(encName, dstr, deptKey) {
+  dayMenuCtx = { name: decodeURIComponent(encName), dstr, dept: deptKey || staffDepartment(decodeURIComponent(encName)) };
   const d = new Date(dstr + 'T12:00:00');
-  document.getElementById('daymenu-title').textContent = `${dayMenuCtx.name} · ${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`;
+  const deptLabel = dayMenuCtx.dept === 'kitchen' ? 'Kitchen' : 'Front of House';
+  document.getElementById('daymenu-title').textContent = `${dayMenuCtx.name} · ${deptLabel} · ${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`;
   openModal('modal-daymenu');
 }
 function dayMenuAddShift() {
   closeModal('modal-daymenu');
-  openAddShift(dayMenuCtx.dstr, dayMenuCtx.name);
+  openAddShift(dayMenuCtx.dstr, dayMenuCtx.name, dayMenuCtx.dept);
 }
 function dayMenuApplyPattern() {
   closeModal('modal-daymenu');
-  openPatternPick(dayMenuCtx.name, dayMenuCtx.dstr);
+  openPatternPick(dayMenuCtx.name, dayMenuCtx.dstr, dayMenuCtx.dept);
 }
 
 /* ── EDIT AN ASSIGNED SHIFT ── */
@@ -2072,9 +2096,9 @@ async function removePatternGroup() {
 }
 
 /* ── APPLY A PATTERN TO ONE PERSON'S DAY (pick shifts) ── */
-let patternPickCtx = { name: '', dstr: '' };
-function openPatternPick(name, dstr) {
-  patternPickCtx = { name, dstr };
+let patternPickCtx = { name: '', dstr: '', dept: 'foh' };
+function openPatternPick(name, dstr, deptKey) {
+  patternPickCtx = { name, dstr, dept: deptKey || staffDepartment(name) };
   const pick = document.getElementById('pp-pattern');
   pick.innerHTML = '<option value="">— choose —</option>' +
     S.patterns.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
@@ -2099,7 +2123,7 @@ async function confirmPatternPick() {
   const checks = [...document.querySelectorAll('.pp-check')].filter(c => c.checked).map(c => parseInt(c.dataset.i));
   if (!checks.length) { err('pp-error','Select at least one shift'); return; }
   const { name, dstr } = patternPickCtx;
-  const dept = staffDepartment(name);
+  const dept = patternPickCtx.dept || staffDepartment(name);
 
   // HARD BLOCK: selected shifts must not clash with existing ones or each other
   const chosen = checks.map(i => ({ start: pat.shifts[i].start_time, end: pat.shifts[i].end_time, label: pat.shifts[i].label }));
@@ -2170,7 +2194,7 @@ function setShiftDept(d) {
   }
 }
 
-function openAddShift(dstr, presetName) {
+function openAddShift(dstr, presetName, deptHint) {
   S.editingShiftId = null;
   const date = dstr || ds(S.mgrWeekStart);
   document.getElementById('shift-modal-title').textContent = 'Add Shift';
@@ -2184,9 +2208,9 @@ function openAddShift(dstr, presetName) {
   staffPick.innerHTML = allNames.map(n => `<option value="${n}">${n}</option>`).join('');
   if (presetName) staffPick.value = presetName;
 
-  // default department follows the chosen staff member
+  // department: use the cell's department if given, else the chosen person's default
   const chosen = presetName || allNames[0] || '';
-  setShiftDept(chosen ? staffDepartment(chosen) : 'foh');
+  setShiftDept(deptHint || (chosen ? staffDepartment(chosen) : 'foh'));
 
   // preset dropdown
   const pick = document.getElementById('shift-preset-pick');
