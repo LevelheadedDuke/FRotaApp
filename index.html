@@ -386,6 +386,100 @@
     .shift-mon  { font-size: 0.65rem; color: var(--muted); }
     .shift-times { font-size: 0.92rem; font-weight: 700; }
     .shift-status { font-size: 0.75rem; color: var(--muted); margin-top: 3px; }
+
+    /* ── ROTA GRID (staff x days, per department) ── */
+    .dept-block { margin: 14px 14px 22px; }
+    .dept-title {
+      font-size: 0.9rem; font-weight: 800; letter-spacing: -0.2px;
+      padding: 4px 2px 10px; display: flex; align-items: center; gap: 8px;
+    }
+    .dept-title .dept-dot { width: 10px; height: 10px; border-radius: 3px; }
+    .grid-scroll { overflow-x: auto; border: 1px solid var(--rim); border-radius: var(--r); -webkit-overflow-scrolling: touch; }
+    table.rota-grid { border-collapse: collapse; width: 100%; min-width: 760px; }
+    table.rota-grid th, table.rota-grid td {
+      border-right: 1px solid var(--rim); border-bottom: 1px solid var(--rim);
+      vertical-align: middle;
+    }
+    table.rota-grid th:last-child, table.rota-grid td:last-child { border-right: none; }
+    table.rota-grid tr:last-child td { border-bottom: none; }
+    .grid-corner {
+      background: var(--night-3); position: sticky; left: 0; z-index: 3;
+      min-width: 120px; width: 120px;
+    }
+    .grid-dayhead {
+      background: var(--night-3); padding: 9px 6px; text-align: center;
+      font-size: 0.72rem; font-weight: 700; color: var(--ghost); white-space: nowrap;
+    }
+    .grid-dayhead.is-today { color: var(--blue); }
+    .grid-dayhead .gh-dow { display: block; }
+    .grid-dayhead .gh-date { display: block; font-size: 0.68rem; color: var(--muted); font-weight: 600; }
+    .grid-staffcell {
+      background: var(--night-2); position: sticky; left: 0; z-index: 2;
+      padding: 8px 10px; min-width: 120px; width: 120px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .grid-staffcell .gs-avatar {
+      width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+      background: var(--blue-dim); border: 1px solid rgba(79,124,255,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 800; color: var(--blue);
+    }
+    .grid-staffcell .gs-name { font-size: 0.8rem; font-weight: 700; line-height: 1.2; }
+    .grid-cell {
+      padding: 4px; text-align: center; height: 56px;
+      cursor: pointer; transition: background 0.12s; position: relative;
+    }
+    .grid-cell:hover { background: var(--night-3); }
+    .cell-shift {
+      border-radius: 6px; padding: 5px 4px; font-size: 0.72rem; line-height: 1.35;
+      font-weight: 600; height: 100%; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 1px;
+    }
+    .cell-shift.k  { background: rgba(79,124,255,0.14);  color: #aaccff; border: 1px solid rgba(79,124,255,0.3); }
+    .cell-shift.f  { background: rgba(34,201,142,0.14);  color: #8ff0cf; border: 1px solid rgba(34,201,142,0.3); }
+    .cell-shift .cs-label { font-weight: 800; }
+    .cell-shift .cs-time  { opacity: 0.9; font-weight: 600; }
+    .cell-off {
+      border-radius: 6px; padding: 5px; font-size: 0.72rem; font-weight: 700;
+      background: var(--amber-dim); color: var(--amber);
+      border: 1px solid rgba(245,166,35,0.3);
+      height: 100%; display: flex; align-items: center; justify-content: center;
+    }
+    .cell-add { color: var(--rim); font-size: 1.1rem; font-weight: 400; }
+    .grid-cell:hover .cell-add { color: var(--muted); }
+    .dept-empty { padding: 16px; font-size: 0.82rem; color: var(--muted); text-align: center; }
+    .seg-toggle { display: flex; gap: 6px; }
+    .seg-opt {
+      flex: 1; padding: 9px; border-radius: 8px; border: 1.5px solid var(--rim);
+      background: none; color: var(--muted); font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    }
+    .seg-opt.on-k { border-color: var(--blue);  background: var(--blue-dim);  color: var(--blue); }
+    .seg-opt.on-f { border-color: var(--green); background: var(--green-dim); color: var(--green); }
+
+    /* ── UNASSIGNED TRAY ── */
+    .tray { margin: 6px 14px 0; }
+    .tray-title { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 4px 2px; display:flex; align-items:center; gap:8px; }
+    .tray-strip { display: flex; gap: 8px; overflow-x: auto; padding: 6px 2px 10px; scrollbar-width: none; }
+    .tray-strip::-webkit-scrollbar { display: none; }
+    .tray-chip {
+      flex-shrink: 0; border: 1.5px solid var(--rim); border-radius: 10px;
+      background: var(--night-2); padding: 8px 11px; cursor: pointer;
+      display: flex; flex-direction: column; gap: 2px; min-width: 96px;
+      transition: border-color 0.12s, transform 0.1s;
+    }
+    .tray-chip:active { transform: scale(0.96); }
+    .tray-chip.picked { border-color: var(--blue); background: var(--blue-dim); box-shadow: 0 0 0 2px rgba(79,124,255,0.25); }
+    .tray-chip .tc-day { font-size: 0.66rem; font-weight: 800; color: var(--ghost); }
+    .tray-chip .tc-label { font-size: 0.78rem; font-weight: 700; }
+    .tray-chip .tc-time { font-size: 0.7rem; color: var(--muted); }
+    .tray-chip .tc-x { position: relative; }
+    .grid-cell.drop-ready { outline: 2px dashed var(--blue); outline-offset: -3px; background: var(--blue-dim); }
+    .pickup-banner {
+      margin: 6px 14px 0; padding: 9px 12px; border-radius: 8px;
+      background: var(--blue-dim); border: 1px solid rgba(79,124,255,0.3);
+      font-size: 0.8rem; color: var(--blue); font-weight: 600;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    }
   </style>
 </head>
 <body>
@@ -537,6 +631,7 @@
       <button class="btn btn-ghost btn-sm" onclick="openApplyPattern()">Apply Pattern</button>
       <button class="btn btn-green btn-sm" style="margin-left:auto;" onclick="publishShifts()">Publish</button>
     </div>
+    <div id="unassigned-tray"></div>
     <div id="shifts-container"></div>
   </div>
 
@@ -645,18 +740,27 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="shift-modal-title">Add Shift</div>
+    <div class="field"><label>Staff member</label>
+      <select id="shift-staff-pick" onchange="setShiftDept(staffDepartment(this.value))"></select>
+    </div>
+    <div class="field"><label>Department</label>
+      <div class="seg-toggle">
+        <button type="button" class="seg-opt" id="shift-dept-k" onclick="setShiftDept('kitchen')">Kitchen</button>
+        <button type="button" class="seg-opt" id="shift-dept-f" onclick="setShiftDept('foh')">Front of House</button>
+      </div>
+    </div>
     <div class="field"><label>Use a preset (optional)</label>
       <select id="shift-preset-pick" onchange="applyPresetToShiftForm()">
         <option value="">— Custom —</option>
       </select>
     </div>
-    <div class="field"><label>Label</label><input type="text" id="shift-label" placeholder="e.g. Morning"></div>
+    <div class="field"><label>Label shown on rota</label><input type="text" id="shift-label" placeholder="e.g. Kitchen"></div>
     <div style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><input type="time" id="shift-start" value="09:00"></div>
       <div class="field" style="flex:1;"><label>To</label><input type="time" id="shift-end" value="13:00"></div>
     </div>
-    <div class="field"><label>Staff needed</label><input type="text" inputmode="numeric" id="shift-needed" value="1"></div>
     <div class="field"><label>Date</label><input type="text" id="shift-date" readonly></div>
+    <div id="shift-avail-note" style="font-size:0.78rem;color:var(--muted);display:none;"></div>
     <div id="shift-modal-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-shift')">Cancel</button>
@@ -675,7 +779,6 @@
       <div class="field" style="flex:1;"><label>From</label><input type="time" id="preset-start" value="09:00"></div>
       <div class="field" style="flex:1;"><label>To</label><input type="time" id="preset-end" value="13:00"></div>
     </div>
-    <div class="field"><label>Staff needed</label><input type="text" inputmode="numeric" id="preset-needed" value="1"></div>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-preset')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmPreset()">Save Preset</button>
@@ -787,6 +890,7 @@ const S = {
   shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
   patternBuild: [],     // shifts being assembled in the New Pattern modal
   editingShiftId: null,
+  pickedShiftId: null,   // unassigned shift currently picked up for placing
   slotType: 'available',
   mgrTab: 'overview',
   staffTab: 'avail',
@@ -963,7 +1067,11 @@ async function confirmSetup() {
       const team = res.data[0];
 
       // Register staff member
-      await sb.from('staff_members').upsert({ team_id: team.id, name: name }, 'team_id,name');
+      // register staff member without clobbering their saved department
+      const existing = await sb.from('staff_members').select('id', `team_id=eq.${team.id}&name=eq.${encodeURIComponent(name)}`);
+      if (!existing.ok || !existing.data?.length) {
+        await sb.from('staff_members').insert({ team_id: team.id, name: name, department: 'foh' });
+      }
       S.mode = 'staff'; S.name = name; S.teamId = team.id;
       S.teamCode = code; S.teamName = team.team_name;
       persist();
@@ -1347,62 +1455,211 @@ function timeOverlapsAvail(name, dstr, start, end) {
   return av.slots?.some(s => s.type === 'available' && s.start <= start && s.end >= end);
 }
 
-/* ── SHIFTS (scheduled, per-day, multi-person) ── */
+/* ── UNASSIGNED TRAY (pattern-created shifts awaiting a person) ── */
+function unassignedShifts() {
+  // shifts within the current visible week that have nobody assigned
+  const days = weekDays(S.mgrWeekStart).map(ds);
+  const out = [];
+  days.forEach(dstr => {
+    (S.shifts[dstr] || []).forEach(sh => {
+      if (!(sh.assigned || []).length) out.push({ ...sh, date: dstr });
+    });
+  });
+  return out;
+}
+
+function renderUnassignedTray() {
+  const tray = document.getElementById('unassigned-tray');
+  const items = unassignedShifts();
+  if (!items.length) { tray.innerHTML = ''; return; }
+
+  let banner = '';
+  if (S.pickedShiftId) {
+    banner = `<div class="pickup-banner">
+      <span>Tap a staff member's cell to place this shift</span>
+      <button class="btn btn-ghost btn-sm" onclick="cancelPickup()">Cancel</button>
+    </div>`;
+  }
+
+  const chips = items.map(sh => {
+    const d = new Date(sh.date + 'T12:00:00');
+    const picked = S.pickedShiftId === sh.id ? ' picked' : '';
+    return `<div class="tray-chip${picked}" onclick="pickupShift('${sh.id}')">
+      <span class="tc-day">${DAY_S[d.getDay()]} ${d.getDate()}</span>
+      <span class="tc-label">${sh.label || 'Shift'}</span>
+      <span class="tc-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span>
+    </div>`;
+  }).join('');
+
+  tray.innerHTML = `${banner}<div class="tray"><div class="tray-title">Unassigned shifts · tap one, then tap a cell</div>
+    <div class="tray-strip">${chips}</div></div>`;
+}
+
+function pickupShift(shiftId) {
+  S.pickedShiftId = (S.pickedShiftId === shiftId) ? null : shiftId;
+  renderUnassignedTray();
+  renderShifts();
+}
+
+function cancelPickup() {
+  S.pickedShiftId = null;
+  renderUnassignedTray();
+  renderShifts();
+}
+
+function findShiftById(shiftId) {
+  for (const dstr in S.shifts) {
+    const sh = S.shifts[dstr].find(x => x.id === shiftId);
+    if (sh) return { sh, dstr };
+  }
+  return null;
+}
+
+/* ── SHIFTS GRID (staff x days, split by department) ── */
+function staffDepartment(name) {
+  const rec = S.staffList.find(s => s.name === name);
+  return (rec && rec.department) ? rec.department : 'foh';
+}
+
+function shiftsForStaffDay(name, dstr) {
+  // shifts on this date that this staff member is assigned to
+  return (S.shifts[dstr] || []).filter(sh => (sh.assigned || []).includes(name));
+}
+
 function renderShifts() {
   const days = weekDays(S.mgrWeekStart);
+  document.getElementById('mgr-week-label').textContent = weekLabel(S.mgrWeekStart);
+  renderUnassignedTray();
   const container = document.getElementById('shifts-container');
   container.innerHTML = '';
 
-  days.forEach(d => {
-    const dstr = ds(d);
-    const dayShifts = (S.shifts[dstr] || []).slice().sort((a,b) => a.start.localeCompare(b.start));
+  // If a shift is picked up, work out which day it belongs to (for cell highlight)
+  const picked = S.pickedShiftId ? findShiftById(S.pickedShiftId) : null;
+  const pickedDate = picked ? picked.dstr : null;
+
+  const allNames = [...new Set([...S.staffList.map(s=>s.name), ...Object.keys(S.staffAvail)])];
+  const depts = [
+    { key: 'kitchen', title: 'Kitchen',          dot: 'var(--blue)',  cls: 'k' },
+    { key: 'foh',     title: 'Front of House',   dot: 'var(--green)', cls: 'f' },
+  ];
+  const today = ds(new Date());
+
+  depts.forEach(dept => {
+    const names = allNames.filter(n => staffDepartment(n) === dept.key).sort();
 
     const block = document.createElement('div');
-    block.className = 'rota-day-block';
+    block.className = 'dept-block';
 
-    let inner = `<div class="rota-day-hdr">
-        <span style="font-weight:700">${DAY_L[d.getDay()]}, ${shortFmt(d)}</span>
-        <button class="btn btn-ghost btn-sm" onclick="openAddShift('${dstr}')">+ Shift</button>
-      </div>`;
+    let html = `<div class="dept-title"><span class="dept-dot" style="background:${dept.dot}"></span>${dept.title}</div>`;
 
-    if (!dayShifts.length) {
-      inner += `<div style="padding:12px 14px;font-size:0.82rem;color:var(--muted);">No shifts. Tap “+ Shift” or apply a pattern.</div>`;
-    } else {
-      dayShifts.forEach(sh => {
-        // One assignment row per person needed
-        let rows = '';
-        for (let i = 0; i < sh.needed; i++) {
-          const cur = sh.assigned[i] || '';
-          const eligible = Object.keys(S.staffAvail).filter(n => timeOverlapsAvail(n, dstr, sh.start, sh.end));
-          // keep already-assigned name selectable even if availability changed
-          const names = [...new Set([...eligible, ...(cur ? [cur] : [])])].sort();
-          const taken = sh.assigned.filter((a,idx) => a && idx !== i);
-          const opts = `<option value="">— Unassigned —</option>` +
-            names.map(n => {
-              const dis = taken.includes(n) ? 'disabled' : '';
-              return `<option value="${n}" ${cur===n?'selected':''} ${dis}>${n}</option>`;
-            }).join('');
-          rows += `<div class="rota-slot-row">
-            <div class="rota-time">${i===0 ? sh.start+'–'+sh.end : ''}</div>
-            <select class="rota-select" onchange="assignToShift('${sh.id}',${i},this.value)">${opts}</select>
-          </div>`;
-        }
-        const filled = sh.assigned.filter(Boolean).length;
-        inner += `<div style="border-top:1px solid var(--rim);">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px 2px;">
-            <span style="font-size:0.8rem;font-weight:700;color:var(--ghost);">${sh.label || 'Shift'} · ${sh.start}–${sh.end}</span>
-            <span style="display:flex;gap:8px;align-items:center;">
-              <span class="badge ${filled>=sh.needed?'badge-green':'badge-amber'}">${filled}/${sh.needed}</span>
-              <button class="btn btn-danger btn-sm" onclick="deleteShift('${sh.id}','${dstr}')">✕</button>
-            </span>
-          </div>${rows}</div>`;
-      });
+    if (!names.length) {
+      html += `<div class="grid-scroll"><div class="dept-empty">No ${dept.title} staff yet. Set a staff member's department in the Staff tab.</div></div>`;
+      block.innerHTML = html;
+      container.appendChild(block);
+      return;
     }
 
-    block.innerHTML = inner;
+    // header row
+    let head = `<tr><th class="grid-corner"></th>`;
+    days.forEach(d => {
+      head += `<th class="grid-dayhead ${ds(d)===today?'is-today':''}">
+        <span class="gh-dow">${DAY_S[d.getDay()]}</span>
+        <span class="gh-date">${d.getDate()} ${MON_S[d.getMonth()]}</span></th>`;
+    });
+    head += `</tr>`;
+
+    // staff rows
+    let rows = '';
+    names.forEach(name => {
+      const initials = name.split(' ').map(x=>x[0]).join('').toUpperCase().slice(0,2);
+      let cells = '';
+      days.forEach(d => {
+        const dstr = ds(d);
+        const av = S.staffAvail[name]?.[dstr];
+        const myShifts = shiftsForStaffDay(name, dstr);
+        let content;
+        if (myShifts.length) {
+          content = myShifts.map(sh => {
+            const lbl = sh.label || (dept.key==='kitchen'?'Kitchen':'Front of House');
+            return `<div class="cell-shift ${dept.cls}">
+              <span class="cs-label">${lbl}</span>
+              <span class="cs-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span></div>`;
+          }).join('');
+        } else if (av && av.holiday) {
+          content = `<div class="cell-off">Day Off</div>`;
+        } else {
+          content = `<span class="cell-add">+</span>`;
+        }
+        const dropReady = pickedDate && pickedDate === dstr && !myShifts.length && !(av && av.holiday);
+        cells += `<td class="grid-cell ${dropReady?'drop-ready':''}" onclick="onCellClick('${encodeURIComponent(name)}','${dstr}')">${content}</td>`;
+      });
+      rows += `<tr>
+        <td class="grid-staffcell"><span class="gs-avatar">${initials}</span><span class="gs-name">${name}</span></td>
+        ${cells}</tr>`;
+    });
+
+    html += `<div class="grid-scroll"><table class="rota-grid"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+    block.innerHTML = html;
     container.appendChild(block);
   });
 }
+
+// Click a grid cell: if the person already has a shift that day, offer to remove it;
+// otherwise open the add-shift modal pre-filled with this person + day.
+function onCellClick(encName, dstr) {
+  const name = decodeURIComponent(encName);
+
+  // If a shift is picked up from the tray, try to drop it here
+  if (S.pickedShiftId) {
+    const found = findShiftById(S.pickedShiftId);
+    if (found && found.dstr === dstr) {
+      placePickedShiftOn(name, found.sh, dstr);
+      return;
+    } else {
+      toast('That shift is for a different day');
+      return;
+    }
+  }
+
+  const existing = shiftsForStaffDay(name, dstr);
+  if (existing.length) {
+    // unassign this person from their shift(s) that day
+    if (confirm(`Remove ${name}'s shift on ${dstr}?`)) {
+      existing.forEach(sh => {
+        sh.assigned = (sh.assigned || []).filter(a => a !== name);
+        saveShiftAssignments(sh.id);
+        // if nobody left on this shift, delete the shift entirely
+        if (!sh.assigned.length) deleteShift(sh.id, dstr);
+      });
+      renderShifts();
+    }
+    return;
+  }
+  openAddShift(dstr, name);
+}
+
+async function placePickedShiftOn(name, sh, dstr) {
+  // optional availability warning
+  if (!timeOverlapsAvail(name, dstr, sh.start, sh.end)) {
+    const av = S.staffAvail[name]?.[dstr];
+    const msg = (av && av.holiday)
+      ? `${name} marked this day as off. Assign anyway?`
+      : `${name} hasn't said they're available then. Assign anyway?`;
+    if (!confirm(msg)) return;
+  }
+  sh.assigned = [name];
+  // department on the shift follows the staff member's department if not already set
+  if (!sh.department) {
+    sh.department = staffDepartment(name);
+    await sb.from('shifts').update({ department: sh.department }, `id=eq.${sh.id}`);
+  }
+  await sb.from('shift_assignments').delete(`shift_id=eq.${sh.id}`);
+  await sb.from('shift_assignments').insert({ shift_id: sh.id, team_id: S.teamId, staff_name: name });
+  S.pickedShiftId = null;
+  renderShifts();
+  toast(`Assigned to ${name}`);
+}
+
 
 function assignToShift(shiftId, slotIdx, name) {
   for (const dstr in S.shifts) {
@@ -1428,19 +1685,40 @@ async function saveShiftAssignments(shiftId) {
 }
 
 /* ── Add / edit a single shift ── */
-function openAddShift(dstr) {
+let shiftFormDept = 'foh';
+
+function setShiftDept(d) {
+  shiftFormDept = d;
+  document.getElementById('shift-dept-k').className = 'seg-opt' + (d==='kitchen' ? ' on-k' : '');
+  document.getElementById('shift-dept-f').className = 'seg-opt' + (d==='foh' ? ' on-f' : '');
+  if (!document.getElementById('shift-label').value.trim() || ['Kitchen','Front of House'].includes(document.getElementById('shift-label').value.trim())) {
+    document.getElementById('shift-label').value = (d==='kitchen' ? 'Kitchen' : 'Front of House');
+  }
+}
+
+function openAddShift(dstr, presetName) {
   S.editingShiftId = null;
-  const date = dstr || S.selectedMgrDate || ds(S.mgrWeekStart);
+  const date = dstr || ds(S.mgrWeekStart);
   document.getElementById('shift-modal-title').textContent = 'Add Shift';
   document.getElementById('shift-date').value = date;
-  document.getElementById('shift-label').value = '';
   document.getElementById('shift-start').value = '09:00';
   document.getElementById('shift-end').value = '13:00';
-  document.getElementById('shift-needed').value = '1';
-  // populate preset dropdown
+
+  // staff picker
+  const allNames = [...new Set([...S.staffList.map(s=>s.name), ...Object.keys(S.staffAvail)])].sort();
+  const staffPick = document.getElementById('shift-staff-pick');
+  staffPick.innerHTML = allNames.map(n => `<option value="${n}">${n}</option>`).join('');
+  if (presetName) staffPick.value = presetName;
+
+  // default department follows the chosen staff member
+  const chosen = presetName || allNames[0] || '';
+  setShiftDept(chosen ? staffDepartment(chosen) : 'foh');
+
+  // preset dropdown
   const pick = document.getElementById('shift-preset-pick');
   pick.innerHTML = '<option value="">— Custom —</option>' +
     S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+
   err('shift-modal-error','');
   openModal('modal-shift');
 }
@@ -1452,23 +1730,35 @@ function applyPresetToShiftForm() {
   document.getElementById('shift-label').value  = p.label;
   document.getElementById('shift-start').value  = p.start_time.slice(0,5);
   document.getElementById('shift-end').value    = p.end_time.slice(0,5);
-  document.getElementById('shift-needed').value = String(p.staff_needed || 1);
 }
 
 async function confirmShift() {
   const date   = document.getElementById('shift-date').value;
+  const name   = document.getElementById('shift-staff-pick').value;
   const label  = document.getElementById('shift-label').value.trim();
   const start  = document.getElementById('shift-start').value;
   const end    = document.getElementById('shift-end').value;
-  const needed = Math.max(1, parseInt(document.getElementById('shift-needed').value) || 1);
+  if (!name) { err('shift-modal-error','Choose a staff member'); return; }
   if (!start || !end || start >= end) { err('shift-modal-error','End time must be after start time'); return; }
 
+  // Soft warning if outside availability (still allowed)
+  if (!timeOverlapsAvail(name, date, start, end)) {
+    const av = S.staffAvail[name]?.[date];
+    const msg = (av && av.holiday)
+      ? `${name} marked this day as off. Assign anyway?`
+      : `${name} hasn't said they're available then. Assign anyway?`;
+    if (!confirm(msg)) return;
+  }
+
   const res = await sb.from('shifts').insert({
-    team_id: S.teamId, date, label: label || null,
-    start_time: start, end_time: end, staff_needed: needed
+    team_id: S.teamId, date, label: label || null, department: shiftFormDept,
+    start_time: start, end_time: end, staff_needed: 1
   });
   if (res.ok && res.data?.[0]) {
-    (S.shifts[date] ||= []).push({ id: res.data[0].id, label, start, end, needed, assigned: [] });
+    const shiftId = res.data[0].id;
+    const sh = { id: shiftId, label, start, end, needed: 1, department: shiftFormDept, assigned: [name] };
+    (S.shifts[date] ||= []).push(sh);
+    await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
   }
   closeModal('modal-shift');
   renderShifts();
@@ -1496,7 +1786,7 @@ function renderPresets() {
   }
   c.innerHTML = S.presets.map(p => `<div class="staff-card">
       <div><div class="staff-name">${p.label}</div>
-      <div class="staff-meta">${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)} · needs ${p.staff_needed}</div></div>
+      <div class="staff-meta">${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}</div></div>
       <div class="staff-right"><button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button></div>
     </div>`).join('');
 }
@@ -1505,7 +1795,6 @@ function openAddPreset() {
   document.getElementById('preset-label').value = '';
   document.getElementById('preset-start').value = '09:00';
   document.getElementById('preset-end').value = '13:00';
-  document.getElementById('preset-needed').value = '1';
   openModal('modal-preset');
 }
 
@@ -1513,11 +1802,10 @@ async function confirmPreset() {
   const label  = document.getElementById('preset-label').value.trim();
   const start  = document.getElementById('preset-start').value;
   const end    = document.getElementById('preset-end').value;
-  const needed = Math.max(1, parseInt(document.getElementById('preset-needed').value) || 1);
   if (!label) { toast('Give the preset a name'); return; }
   if (!start || !end || start >= end) { toast('End time must be after start'); return; }
   const res = await sb.from('shift_presets').insert({
-    team_id: S.teamId, label, start_time: start, end_time: end, staff_needed: needed
+    team_id: S.teamId, label, start_time: start, end_time: end
   });
   if (res.ok && res.data?.[0]) S.presets.push(res.data[0]);
   closeModal('modal-preset');
@@ -1539,7 +1827,7 @@ function renderPatterns() {
     return;
   }
   c.innerHTML = S.patterns.map(p => {
-    const shiftSummary = p.shifts.map(s => `${s.label||'Shift'} ${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}×${s.staff_needed}`).join(' · ') || 'No shifts';
+    const shiftSummary = p.shifts.map(s => `${s.label||'Shift'} ${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}`).join(' · ') || 'No shifts';
     return `<div class="staff-card">
       <div style="flex:1;"><div class="staff-name">${p.label}</div>
       <div class="staff-meta">${shiftSummary}</div></div>
@@ -1563,7 +1851,7 @@ function renderPatternBuild() {
   if (!S.patternBuild.length) { c.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">No shifts added yet.</div>'; return; }
   c.innerHTML = S.patternBuild.map((s,i) => `<div class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;">
       <div class="rota-time">${s.start.slice(0,5)}–${s.end.slice(0,5)}</div>
-      <div style="flex:1;font-size:0.82rem;">${s.label||'Shift'} · needs ${s.needed}</div>
+      <div style="flex:1;font-size:0.82rem;">${s.label||'Shift'}</div>
       <button class="btn btn-danger btn-sm" onclick="removePatternBuild(${i})">✕</button>
     </div>`).join('');
 }
@@ -1572,7 +1860,7 @@ function addPresetToPattern() {
   const id = document.getElementById('pattern-preset-pick').value;
   const p = S.presets.find(x => x.id === id);
   if (!p) { toast('Choose a preset first'); return; }
-  S.patternBuild.push({ label: p.label, start: p.start_time, end: p.end_time, needed: p.staff_needed || 1 });
+  S.patternBuild.push({ label: p.label, start: p.start_time, end: p.end_time });
   renderPatternBuild();
 }
 
@@ -1588,7 +1876,7 @@ async function confirmPattern() {
   const shifts = [];
   for (const s of S.patternBuild) {
     const r = await sb.from('pattern_shifts').insert({
-      pattern_id: patternId, label: s.label, start_time: s.start, end_time: s.end, staff_needed: s.needed
+      pattern_id: patternId, label: s.label, start_time: s.start, end_time: s.end
     });
     if (r.ok && r.data?.[0]) shifts.push(r.data[0]);
   }
@@ -1636,12 +1924,12 @@ async function confirmApplyPattern() {
     for (const s of pat.shifts) {
       const res = await sb.from('shifts').insert({
         team_id: S.teamId, date: dstr, label: s.label,
-        start_time: s.start_time, end_time: s.end_time, staff_needed: s.staff_needed
+        start_time: s.start_time, end_time: s.end_time, staff_needed: 1
       });
       if (res.ok && res.data?.[0]) {
         (S.shifts[dstr] ||= []).push({
           id: res.data[0].id, label: s.label, start: s.start_time, end: s.end_time,
-          needed: s.staff_needed, assigned: []
+          needed: 1, assigned: []
         });
         count++;
       }
@@ -1664,11 +1952,36 @@ function renderStaffListMgr() {
   container.innerHTML = names.map(name => {
     const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
     const days = Object.keys(S.staffAvail[name]||{}).length;
+    const dept = staffDepartment(name);
     return `<div class="staff-card">
       <div class="staff-avatar">${initials}</div>
-      <div><div class="staff-name">${name}</div><div class="staff-meta">${days} day${days!==1?'s':''} with availability</div></div>
+      <div style="flex:1;">
+        <div class="staff-name">${name}</div>
+        <div class="staff-meta">${days} day${days!==1?'s':''} with availability</div>
+      </div>
+      <div class="staff-right">
+        <select class="rota-select" style="min-width:120px;" onchange="setStaffDept('${encodeURIComponent(name)}', this.value)">
+          <option value="kitchen" ${dept==='kitchen'?'selected':''}>Kitchen</option>
+          <option value="foh" ${dept==='foh'?'selected':''}>Front of House</option>
+        </select>
+      </div>
     </div>`;
   }).join('');
+}
+
+async function setStaffDept(encName, dept) {
+  const name = decodeURIComponent(encName);
+  let rec = S.staffList.find(s => s.name === name);
+  if (rec) {
+    rec.department = dept;
+    await sb.from('staff_members').update({ department: dept }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  } else {
+    // staff exists only via availability; create a record
+    const r = await sb.from('staff_members').upsert({ team_id: S.teamId, name, department: dept }, 'team_id,name');
+    S.staffList.push({ name, department: dept });
+  }
+  toast(`${name} → ${dept==='kitchen'?'Kitchen':'Front of House'}`);
+  if (S.mgrTab === 'rota') renderShifts();
 }
 
 /* ── Manager tabs ── */
