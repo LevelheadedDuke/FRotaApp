@@ -447,6 +447,9 @@
     }
     .cell-add { color: var(--rim); font-size: 1.1rem; font-weight: 400; }
     .cell-shift + .cell-shift { margin-top: 3px; }
+    .cell-shift.cell-pattern { justify-content: center; min-height: 34px; font-weight: 800; }
+    .cell-shift.cell-pattern .cs-label { font-size: 0.76rem; }
+    .cell-shift.cell-pattern::after { content: '▾'; font-size: 0.6rem; opacity: 0.6; margin-top: 1px; }
     .cell-more { font-size: 0.64rem; color: var(--muted); font-weight: 700; margin-top: 3px; padding: 2px; border-radius: 4px; }
     .cell-more:hover { color: var(--blue); background: var(--blue-dim); }
     .grid-cell { min-width: 92px; }
@@ -907,6 +910,20 @@
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-patternpick')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmPatternPick()">Add Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pattern group view: shifts within an applied pattern -->
+<div class="modal-overlay" id="modal-patgroup">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="patgroup-title">Pattern</div>
+    <div class="t-sub" id="patgroup-sub">—</div>
+    <div id="patgroup-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div class="modal-row">
+      <button class="btn btn-danger" onclick="removePatternGroup()">Remove all</button>
+      <button class="btn btn-primary" onclick="closeModal('modal-patgroup')">Done</button>
     </div>
   </div>
 </div>
@@ -1533,7 +1550,9 @@ async function fetchAllAvail() {
     shf.data.forEach(s => {
       (S.shifts[s.date] ||= []).push({
         id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
-        needed: s.staff_needed || 1, assigned: asgByShift[s.id] || []
+        needed: s.staff_needed || 1, department: s.department || null,
+        patternName: s.pattern_name || null, patternGroup: s.pattern_group || null,
+        assigned: asgByShift[s.id] || []
       });
     });
   }
@@ -1664,15 +1683,18 @@ async function applyPatternToCell(name, dstr) {
   if (!pat) return;
   if (!pat.shifts.length) { toast('That pattern has no shifts'); return; }
   const dept = staffDepartment(name);
+  // one group id per application so this pattern-on-this-day-for-this-person stays grouped
+  const groupId = `${pat.id}-${dstr}-${name}-${Date.now()}`;
   setLoading(true, 'Applying pattern…');
   for (const s of pat.shifts) {
     const res = await sb.from('shifts').insert({
       team_id: S.teamId, date: dstr, label: s.label, department: dept,
-      start_time: s.start_time, end_time: s.end_time, staff_needed: 1
+      start_time: s.start_time, end_time: s.end_time, staff_needed: 1,
+      pattern_name: pat.label, pattern_group: groupId
     });
     if (res.ok && res.data?.[0]) {
       const shiftId = res.data[0].id;
-      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name] });
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, patternName: pat.label, patternGroup: groupId, assigned: [name] });
       await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
     }
   }
@@ -1774,14 +1796,32 @@ function renderShifts() {
         const enc = encodeURIComponent(name);
         let content;
         if (myShifts.length) {
-          // stacked, each shift individually tappable to edit
-          const blocks = myShifts.map(sh => {
+          // Group shifts: pattern-applied ones collapse into a single named block,
+          // standalone shifts each render on their own.
+          const groups = [];           // ordered list of {type:'pattern'|'single', ...}
+          const seenGroups = {};
+          myShifts.forEach(sh => {
+            if (sh.patternGroup) {
+              if (!seenGroups[sh.patternGroup]) {
+                seenGroups[sh.patternGroup] = { type:'pattern', group: sh.patternGroup, name: sh.patternName || 'Pattern' };
+                groups.push(seenGroups[sh.patternGroup]);
+              }
+            } else {
+              groups.push({ type:'single', sh });
+            }
+          });
+
+          const blocks = groups.map(g => {
+            if (g.type === 'pattern') {
+              return `<div class="cell-shift ${dept.cls} cell-pattern" onclick="event.stopPropagation(); openPatternGroup('${enc}','${dstr}','${g.group}')">
+                <span class="cs-label">${g.name}</span></div>`;
+            }
+            const sh = g.sh;
             const lbl = sh.label || (dept.key==='kitchen'?'Kitchen':'Front of House');
             return `<div class="cell-shift ${dept.cls}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
               <span class="cs-label">${lbl}</span>
               <span class="cs-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span></div>`;
           }).join('');
-          // small add affordance below the stack
           content = `${blocks}<div class="cell-more" onclick="event.stopPropagation(); openDayMenu('${enc}','${dstr}')">+ add</div>`;
         } else if (av && av.holiday) {
           content = `<div class="cell-off">Day Off</div>`;
@@ -1890,6 +1930,69 @@ async function deleteEditShift() {
   if (!confirm('Delete this shift?')) return;
   await deleteShift(editShiftCtx.id, editShiftCtx.dstr);
   closeModal('modal-editshift');
+}
+
+/* ── PATTERN GROUP (collapsed block) view ── */
+let patGroupCtx = { name: '', dstr: '', group: '' };
+
+function groupShifts(name, dstr, group) {
+  return shiftsForStaffDay(name, dstr)
+    .filter(sh => sh.patternGroup === group)
+    .sort((a,b) => a.start.localeCompare(b.start));
+}
+
+function openPatternGroup(encName, dstr, group) {
+  const name = decodeURIComponent(encName);
+  patGroupCtx = { name, dstr, group };
+  const shifts = groupShifts(name, dstr, group);
+  const pname = shifts[0]?.patternName || 'Pattern';
+  const d = new Date(dstr + 'T12:00:00');
+  const totalH = shifts.reduce((t,sh)=>t+shiftHours(sh),0);
+  document.getElementById('patgroup-title').textContent = pname;
+  document.getElementById('patgroup-sub').textContent = `${name} · ${DAY_L[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]} · ${fmtHours(totalH)} total`;
+  renderPatGroupList();
+  openModal('modal-patgroup');
+}
+
+function renderPatGroupList() {
+  const { name, dstr, group } = patGroupCtx;
+  const shifts = groupShifts(name, dstr, group);
+  const list = document.getElementById('patgroup-list');
+  if (!shifts.length) { list.innerHTML = '<div style="font-size:0.82rem;color:var(--muted);">No shifts left in this pattern.</div>'; return; }
+  list.innerHTML = shifts.map(sh => `<div class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;">
+      <div class="rota-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</div>
+      <div style="flex:1;font-size:0.82rem;">${sh.label || 'Shift'}</div>
+      <button class="btn btn-ghost btn-sm" onclick="editGroupShift('${sh.id}')">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="removeGroupShift('${sh.id}')">✕</button>
+    </div>`).join('');
+}
+
+function editGroupShift(shiftId) {
+  // open the standard edit dialog; on close the grid re-renders
+  closeModal('modal-patgroup');
+  openEditShift(shiftId, encodeURIComponent(patGroupCtx.name), patGroupCtx.dstr);
+}
+
+async function removeGroupShift(shiftId) {
+  await deleteShift(shiftId, patGroupCtx.dstr, { quiet: true });
+  renderShifts();
+  const remaining = groupShifts(patGroupCtx.name, patGroupCtx.dstr, patGroupCtx.group);
+  if (!remaining.length) { closeModal('modal-patgroup'); }
+  else renderPatGroupList();
+}
+
+async function removePatternGroup() {
+  const { name, dstr, group } = patGroupCtx;
+  const shifts = groupShifts(name, dstr, group);
+  if (!shifts.length) { closeModal('modal-patgroup'); return; }
+  if (!confirm(`Remove all ${shifts.length} shifts in this pattern for ${name}?`)) return;
+  setLoading(true, 'Removing…');
+  for (const sh of shifts) {
+    await deleteShift(sh.id, dstr, { quiet: true });
+  }
+  setLoading(false);
+  closeModal('modal-patgroup');
+  renderShifts();
 }
 
 /* ── APPLY A PATTERN TO ONE PERSON'S DAY (pick shifts) ── */
@@ -2044,11 +2147,10 @@ async function confirmShift() {
   toast('Shift added');
 }
 
-async function deleteShift(shiftId, dstr) {
+async function deleteShift(shiftId, dstr, opts = {}) {
   await sb.from('shifts').delete(`id=eq.${shiftId}`);
   if (S.shifts[dstr]) S.shifts[dstr] = S.shifts[dstr].filter(s => s.id !== shiftId);
-  renderShifts();
-  toast('Shift removed');
+  if (!opts.quiet) { renderShifts(); toast('Shift removed'); }
 }
 
 async function publishShifts() {
