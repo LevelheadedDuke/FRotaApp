@@ -446,6 +446,10 @@
       height: 100%; display: flex; align-items: center; justify-content: center;
     }
     .cell-add { color: var(--rim); font-size: 1.1rem; font-weight: 400; }
+    .cell-shift + .cell-shift { margin-top: 3px; }
+    .cell-more { font-size: 0.64rem; color: var(--muted); font-weight: 700; margin-top: 3px; padding: 2px; border-radius: 4px; }
+    .cell-more:hover { color: var(--blue); background: var(--blue-dim); }
+    .grid-cell { min-width: 92px; }
     .grid-cell:hover .cell-add { color: var(--muted); }
     .dept-empty { padding: 16px; font-size: 0.82rem; color: var(--muted); text-align: center; }
     .seg-toggle { display: flex; gap: 6px; }
@@ -834,6 +838,63 @@
   </div>
 </div>
 
+<!-- Day menu: add shift or apply pattern to a person/day -->
+<div class="modal-overlay" id="modal-daymenu">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="daymenu-title">Add to day</div>
+    <button class="btn btn-primary btn-full" onclick="dayMenuAddShift()">+ Add a single shift</button>
+    <button class="btn btn-ghost btn-full" onclick="dayMenuApplyPattern()">Apply a pattern</button>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-daymenu')">Cancel</button>
+  </div>
+</div>
+
+<!-- Edit an assigned shift -->
+<div class="modal-overlay" id="modal-editshift">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Edit Shift</div>
+    <div class="field"><label>Department</label>
+      <div class="seg-toggle">
+        <button type="button" class="seg-opt" id="es-dept-k" onclick="setEditShiftDept('kitchen')">Kitchen</button>
+        <button type="button" class="seg-opt" id="es-dept-f" onclick="setEditShiftDept('foh')">Front of House</button>
+      </div>
+    </div>
+    <div class="field"><label>Use a preset (optional)</label>
+      <select id="es-preset" onchange="applyPresetToEditForm()"><option value="">— Custom —</option></select>
+    </div>
+    <div class="field"><label>Label shown on rota</label><input type="text" id="es-label" placeholder="e.g. Kitchen"></div>
+    <div style="display:flex;gap:12px;">
+      <div class="field" style="flex:1;"><label>From</label><input type="time" id="es-start"></div>
+      <div class="field" style="flex:1;"><label>To</label><input type="time" id="es-end"></div>
+    </div>
+    <div id="es-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-danger" onclick="deleteEditShift()">Delete</button>
+      <button class="btn btn-primary" onclick="confirmEditShift()">Save</button>
+    </div>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-editshift')">Cancel</button>
+  </div>
+</div>
+
+<!-- Pick which shifts of a pattern to apply to a person -->
+<div class="modal-overlay" id="modal-patternpick">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Apply Pattern</div>
+    <div class="field"><label>Pattern</label>
+      <select id="pp-pattern" onchange="renderPatternPickShifts()"><option value="">— choose —</option></select>
+    </div>
+    <div class="t-label">Choose shifts to add</div>
+    <div id="pp-shift-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div id="pp-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-patternpick')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmPatternPick()">Add Selected</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ════════════════════════════════════════
@@ -891,6 +952,8 @@ const S = {
   patternBuild: [],     // shifts being assembled in the New Pattern modal
   editingShiftId: null,
   pickedShiftId: null,   // unassigned shift currently picked up for placing
+  editingPresetId: null,
+  editingPatternId: null,
   slotType: 'available',
   mgrTab: 'overview',
   staffTab: 'avail',
@@ -1577,21 +1640,25 @@ function renderShifts() {
         const dstr = ds(d);
         const av = S.staffAvail[name]?.[dstr];
         const myShifts = shiftsForStaffDay(name, dstr);
+        const enc = encodeURIComponent(name);
         let content;
         if (myShifts.length) {
-          content = myShifts.map(sh => {
+          // stacked, each shift individually tappable to edit
+          const blocks = myShifts.map(sh => {
             const lbl = sh.label || (dept.key==='kitchen'?'Kitchen':'Front of House');
-            return `<div class="cell-shift ${dept.cls}">
+            return `<div class="cell-shift ${dept.cls}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
               <span class="cs-label">${lbl}</span>
               <span class="cs-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span></div>`;
           }).join('');
+          // small add affordance below the stack
+          content = `${blocks}<div class="cell-more" onclick="event.stopPropagation(); openDayMenu('${enc}','${dstr}')">+ add</div>`;
         } else if (av && av.holiday) {
           content = `<div class="cell-off">Day Off</div>`;
         } else {
           content = `<span class="cell-add">+</span>`;
         }
-        const dropReady = pickedDate && pickedDate === dstr && !myShifts.length && !(av && av.holiday);
-        cells += `<td class="grid-cell ${dropReady?'drop-ready':''}" onclick="onCellClick('${encodeURIComponent(name)}','${dstr}')">${content}</td>`;
+        const dropReady = pickedDate && pickedDate === dstr && !(av && av.holiday);
+        cells += `<td class="grid-cell ${dropReady?'drop-ready':''}" onclick="onCellClick('${enc}','${dstr}')">${content}</td>`;
       });
       rows += `<tr>
         <td class="grid-staffcell"><span class="gs-avatar">${initials}</span><span class="gs-name">${name}</span></td>
@@ -1621,21 +1688,129 @@ function onCellClick(encName, dstr) {
     }
   }
 
+  // Empty cell → open the day menu (add shift / apply pattern).
+  // (Filled shifts are edited via their own block click; the "+ add" affordance also opens this.)
   const existing = shiftsForStaffDay(name, dstr);
-  if (existing.length) {
-    // unassign this person from their shift(s) that day
-    if (confirm(`Remove ${name}'s shift on ${dstr}?`)) {
-      existing.forEach(sh => {
-        sh.assigned = (sh.assigned || []).filter(a => a !== name);
-        saveShiftAssignments(sh.id);
-        // if nobody left on this shift, delete the shift entirely
-        if (!sh.assigned.length) deleteShift(sh.id, dstr);
-      });
-      renderShifts();
-    }
-    return;
+  if (!existing.length) {
+    openDayMenu(encName, dstr);
   }
-  openAddShift(dstr, name);
+}
+
+/* ── DAY MENU ── */
+let dayMenuCtx = { name: '', dstr: '' };
+function openDayMenu(encName, dstr) {
+  dayMenuCtx = { name: decodeURIComponent(encName), dstr };
+  const d = new Date(dstr + 'T12:00:00');
+  document.getElementById('daymenu-title').textContent = `${dayMenuCtx.name} · ${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`;
+  openModal('modal-daymenu');
+}
+function dayMenuAddShift() {
+  closeModal('modal-daymenu');
+  openAddShift(dayMenuCtx.dstr, dayMenuCtx.name);
+}
+function dayMenuApplyPattern() {
+  closeModal('modal-daymenu');
+  openPatternPick(dayMenuCtx.name, dayMenuCtx.dstr);
+}
+
+/* ── EDIT AN ASSIGNED SHIFT ── */
+let editShiftCtx = { id: '', name: '', dstr: '', dept: 'foh' };
+function setEditShiftDept(d) {
+  editShiftCtx.dept = d;
+  document.getElementById('es-dept-k').className = 'seg-opt' + (d==='kitchen' ? ' on-k' : '');
+  document.getElementById('es-dept-f').className = 'seg-opt' + (d==='foh' ? ' on-f' : '');
+}
+function applyPresetToEditForm() {
+  const p = S.presets.find(x => x.id === document.getElementById('es-preset').value);
+  if (!p) return;
+  document.getElementById('es-label').value = p.label;
+  document.getElementById('es-start').value = p.start_time.slice(0,5);
+  document.getElementById('es-end').value = p.end_time.slice(0,5);
+}
+function openEditShift(shiftId, encName, dstr) {
+  const found = findShiftById(shiftId);
+  if (!found) return;
+  const sh = found.sh;
+  editShiftCtx = { id: shiftId, name: decodeURIComponent(encName), dstr, dept: sh.department || staffDepartment(decodeURIComponent(encName)) };
+  setEditShiftDept(editShiftCtx.dept);
+  document.getElementById('es-label').value = sh.label || '';
+  document.getElementById('es-start').value = sh.start.slice(0,5);
+  document.getElementById('es-end').value = sh.end.slice(0,5);
+  const pick = document.getElementById('es-preset');
+  pick.innerHTML = '<option value="">— Custom —</option>' +
+    S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+  err('es-error','');
+  openModal('modal-editshift');
+}
+async function confirmEditShift() {
+  const label = document.getElementById('es-label').value.trim();
+  const start = document.getElementById('es-start').value;
+  const end   = document.getElementById('es-end').value;
+  if (!start || !end || start >= end) { err('es-error','End time must be after start time'); return; }
+  await sb.from('shifts').update(
+    { label: label || null, start_time: start, end_time: end, department: editShiftCtx.dept },
+    `id=eq.${editShiftCtx.id}`
+  );
+  const found = findShiftById(editShiftCtx.id);
+  if (found) {
+    found.sh.label = label; found.sh.start = start; found.sh.end = end; found.sh.department = editShiftCtx.dept;
+  }
+  closeModal('modal-editshift');
+  renderShifts();
+  toast('Shift updated');
+}
+async function deleteEditShift() {
+  if (!confirm('Delete this shift?')) return;
+  await deleteShift(editShiftCtx.id, editShiftCtx.dstr);
+  closeModal('modal-editshift');
+}
+
+/* ── APPLY A PATTERN TO ONE PERSON'S DAY (pick shifts) ── */
+let patternPickCtx = { name: '', dstr: '' };
+function openPatternPick(name, dstr) {
+  patternPickCtx = { name, dstr };
+  const pick = document.getElementById('pp-pattern');
+  pick.innerHTML = '<option value="">— choose —</option>' +
+    S.patterns.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+  document.getElementById('pp-shift-list').innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">Choose a pattern first.</div>';
+  err('pp-error','');
+  openModal('modal-patternpick');
+}
+function renderPatternPickShifts() {
+  const pat = S.patterns.find(p => p.id === document.getElementById('pp-pattern').value);
+  const list = document.getElementById('pp-shift-list');
+  if (!pat) { list.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">Choose a pattern first.</div>'; return; }
+  if (!pat.shifts.length) { list.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">This pattern has no shifts.</div>'; return; }
+  list.innerHTML = pat.shifts.map((s,i) => `<label class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;cursor:pointer;">
+      <input type="checkbox" class="pp-check" data-i="${i}" checked style="width:auto;">
+      <div class="rota-time">${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}</div>
+      <div style="flex:1;font-size:0.82rem;">${s.label||'Shift'}</div>
+    </label>`).join('');
+}
+async function confirmPatternPick() {
+  const pat = S.patterns.find(p => p.id === document.getElementById('pp-pattern').value);
+  if (!pat) { err('pp-error','Choose a pattern'); return; }
+  const checks = [...document.querySelectorAll('.pp-check')].filter(c => c.checked).map(c => parseInt(c.dataset.i));
+  if (!checks.length) { err('pp-error','Select at least one shift'); return; }
+  const { name, dstr } = patternPickCtx;
+  const dept = staffDepartment(name);
+  setLoading(true, 'Adding shifts…');
+  for (const i of checks) {
+    const s = pat.shifts[i];
+    const res = await sb.from('shifts').insert({
+      team_id: S.teamId, date: dstr, label: s.label, department: dept,
+      start_time: s.start_time, end_time: s.end_time, staff_needed: 1
+    });
+    if (res.ok && res.data?.[0]) {
+      const shiftId = res.data[0].id;
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name] });
+      await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
+    }
+  }
+  setLoading(false);
+  closeModal('modal-patternpick');
+  renderShifts();
+  toast(`Added ${checks.length} shift${checks.length!==1?'s':''} to ${name}`);
 }
 
 async function placePickedShiftOn(name, sh, dstr) {
@@ -1785,16 +1960,32 @@ function renderPresets() {
     return;
   }
   c.innerHTML = S.presets.map(p => `<div class="staff-card">
-      <div><div class="staff-name">${p.label}</div>
+      <div style="flex:1;"><div class="staff-name">${p.label}</div>
       <div class="staff-meta">${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}</div></div>
-      <div class="staff-right"><button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button></div>
+      <div class="staff-right" style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="openEditPreset('${p.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button>
+      </div>
     </div>`).join('');
 }
 
 function openAddPreset() {
+  S.editingPresetId = null;
+  document.querySelector('#modal-preset .modal-title').textContent = 'New Preset';
   document.getElementById('preset-label').value = '';
   document.getElementById('preset-start').value = '09:00';
   document.getElementById('preset-end').value = '13:00';
+  openModal('modal-preset');
+}
+
+function openEditPreset(id) {
+  const p = S.presets.find(x => x.id === id);
+  if (!p) return;
+  S.editingPresetId = id;
+  document.querySelector('#modal-preset .modal-title').textContent = 'Edit Preset';
+  document.getElementById('preset-label').value = p.label;
+  document.getElementById('preset-start').value = p.start_time.slice(0,5);
+  document.getElementById('preset-end').value = p.end_time.slice(0,5);
   openModal('modal-preset');
 }
 
@@ -1804,6 +1995,21 @@ async function confirmPreset() {
   const end    = document.getElementById('preset-end').value;
   if (!label) { toast('Give the preset a name'); return; }
   if (!start || !end || start >= end) { toast('End time must be after start'); return; }
+
+  if (S.editingPresetId) {
+    await sb.from('shift_presets').update(
+      { label, start_time: start, end_time: end },
+      `id=eq.${S.editingPresetId}`
+    );
+    const p = S.presets.find(x => x.id === S.editingPresetId);
+    if (p) { p.label = label; p.start_time = start; p.end_time = end; }
+    S.editingPresetId = null;
+    closeModal('modal-preset');
+    renderPresets();
+    toast('Preset updated');
+    return;
+  }
+
   const res = await sb.from('shift_presets').insert({
     team_id: S.teamId, label, start_time: start, end_time: end
   });
@@ -1831,18 +2037,37 @@ function renderPatterns() {
     return `<div class="staff-card">
       <div style="flex:1;"><div class="staff-name">${p.label}</div>
       <div class="staff-meta">${shiftSummary}</div></div>
-      <div class="staff-right"><button class="btn btn-danger btn-sm" onclick="deletePattern('${p.id}')">Delete</button></div>
+      <div class="staff-right" style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="openEditPattern('${p.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deletePattern('${p.id}')">Delete</button>
+      </div>
     </div>`;
   }).join('');
 }
 
 function openAddPattern() {
+  S.editingPatternId = null;
   S.patternBuild = [];
   document.getElementById('pattern-label').value = '';
   renderPatternBuild();
   const pick = document.getElementById('pattern-preset-pick');
   pick.innerHTML = '<option value="">— choose preset —</option>' +
     S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+  openModal('modal-pattern');
+}
+
+function openEditPattern(id) {
+  const p = S.patterns.find(x => x.id === id);
+  if (!p) return;
+  S.editingPatternId = id;
+  document.querySelector('#modal-pattern .modal-title').textContent = 'Edit Pattern';
+  document.getElementById('pattern-label').value = p.label;
+  // load existing shifts into the builder
+  S.patternBuild = p.shifts.map(s => ({ label: s.label, start: s.start_time, end: s.end_time }));
+  renderPatternBuild();
+  const pick = document.getElementById('pattern-preset-pick');
+  pick.innerHTML = '<option value="">— choose preset —</option>' +
+    S.presets.map(pr => `<option value="${pr.id}">${pr.label} (${pr.start_time.slice(0,5)}–${pr.end_time.slice(0,5)})</option>`).join('');
   openModal('modal-pattern');
 }
 
@@ -1870,6 +2095,28 @@ async function confirmPattern() {
   const label = document.getElementById('pattern-label').value.trim();
   if (!label) { toast('Give the pattern a name'); return; }
   if (!S.patternBuild.length) { toast('Add at least one shift'); return; }
+
+  if (S.editingPatternId) {
+    const patternId = S.editingPatternId;
+    await sb.from('patterns').update({ label }, `id=eq.${patternId}`);
+    // replace the pattern's shifts wholesale
+    await sb.from('pattern_shifts').delete(`pattern_id=eq.${patternId}`);
+    const shifts = [];
+    for (const s of S.patternBuild) {
+      const r = await sb.from('pattern_shifts').insert({
+        pattern_id: patternId, label: s.label, start_time: s.start, end_time: s.end
+      });
+      if (r.ok && r.data?.[0]) shifts.push(r.data[0]);
+    }
+    const pat = S.patterns.find(x => x.id === patternId);
+    if (pat) { pat.label = label; pat.shifts = shifts; }
+    S.editingPatternId = null;
+    closeModal('modal-pattern');
+    renderPatterns();
+    toast('Pattern updated');
+    return;
+  }
+
   const res = await sb.from('patterns').insert({ team_id: S.teamId, label });
   if (!res.ok || !res.data?.[0]) { toast('Could not save pattern'); return; }
   const patternId = res.data[0].id;
