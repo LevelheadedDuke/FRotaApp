@@ -450,6 +450,12 @@
     .cell-more { font-size: 0.64rem; color: var(--muted); font-weight: 700; margin-top: 3px; padding: 2px; border-radius: 4px; }
     .cell-more:hover { color: var(--blue); background: var(--blue-dim); }
     .grid-cell { min-width: 92px; }
+    .grid-hourshead { background: var(--night-3); color: var(--blue); min-width: 64px; }
+    .grid-hours {
+      background: var(--night-2); text-align: center; font-weight: 800;
+      font-size: 0.82rem; color: var(--blue); min-width: 64px; white-space: nowrap;
+      border-left: 1px solid var(--rim);
+    }
     .grid-cell:hover .cell-add { color: var(--muted); }
     .dept-empty { padding: 16px; font-size: 0.82rem; color: var(--muted); text-align: center; }
     .seg-toggle { display: flex; gap: 6px; }
@@ -460,24 +466,23 @@
     .seg-opt.on-k { border-color: var(--blue);  background: var(--blue-dim);  color: var(--blue); }
     .seg-opt.on-f { border-color: var(--green); background: var(--green-dim); color: var(--green); }
 
-    /* ── UNASSIGNED TRAY ── */
-    .tray { margin: 6px 14px 0; }
-    .tray-title { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 4px 2px; display:flex; align-items:center; gap:8px; }
-    .tray-strip { display: flex; gap: 8px; overflow-x: auto; padding: 6px 2px 10px; scrollbar-width: none; }
-    .tray-strip::-webkit-scrollbar { display: none; }
-    .tray-chip {
+    /* ── PATTERN BAR (draggable / tappable) ── */
+    .pbar { margin: 6px 14px 0; }
+    .pbar-title { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 4px 2px; }
+    .pbar-strip { display: flex; gap: 8px; overflow-x: auto; padding: 6px 2px 10px; scrollbar-width: none; }
+    .pbar-strip::-webkit-scrollbar { display: none; }
+    .pat-chip {
       flex-shrink: 0; border: 1.5px solid var(--rim); border-radius: 10px;
-      background: var(--night-2); padding: 8px 11px; cursor: pointer;
-      display: flex; flex-direction: column; gap: 2px; min-width: 96px;
-      transition: border-color 0.12s, transform 0.1s;
+      background: var(--night-2); padding: 9px 12px; cursor: grab;
+      display: flex; flex-direction: column; gap: 2px; min-width: 110px;
+      transition: border-color 0.12s, transform 0.1s, box-shadow 0.12s;
+      user-select: none;
     }
-    .tray-chip:active { transform: scale(0.96); }
-    .tray-chip.picked { border-color: var(--blue); background: var(--blue-dim); box-shadow: 0 0 0 2px rgba(79,124,255,0.25); }
-    .tray-chip .tc-day { font-size: 0.66rem; font-weight: 800; color: var(--ghost); }
-    .tray-chip .tc-label { font-size: 0.78rem; font-weight: 700; }
-    .tray-chip .tc-time { font-size: 0.7rem; color: var(--muted); }
-    .tray-chip .tc-x { position: relative; }
-    .grid-cell.drop-ready { outline: 2px dashed var(--blue); outline-offset: -3px; background: var(--blue-dim); }
+    .pat-chip:active { cursor: grabbing; transform: scale(0.97); }
+    .pat-chip.picked { border-color: var(--blue); background: var(--blue-dim); box-shadow: 0 0 0 2px rgba(79,124,255,0.25); }
+    .pat-chip.dragging { opacity: 0.5; }
+    .pat-chip .pc-name { font-size: 0.82rem; font-weight: 800; }
+    .pat-chip .pc-meta { font-size: 0.68rem; color: var(--muted); }
     .pickup-banner {
       margin: 6px 14px 0; padding: 9px 12px; border-radius: 8px;
       background: var(--blue-dim); border: 1px solid rgba(79,124,255,0.3);
@@ -632,10 +637,9 @@
   <div class="scroll-body" id="mgr-tab-rota" style="display:none;">
     <div style="padding:12px 14px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-primary btn-sm" onclick="openAddShift()">+ Add Shift</button>
-      <button class="btn btn-ghost btn-sm" onclick="openApplyPattern()">Apply Pattern</button>
       <button class="btn btn-green btn-sm" style="margin-left:auto;" onclick="publishShifts()">Publish</button>
     </div>
-    <div id="unassigned-tray"></div>
+    <div id="pattern-bar"></div>
     <div id="shifts-container"></div>
   </div>
 
@@ -707,18 +711,30 @@
 <div class="modal-overlay" id="modal-slot">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Add Time Slot</div>
+    <div class="modal-title">Add Availability</div>
     <div class="field"><label>Type</label>
       <div class="type-toggle">
         <button class="type-opt sel-avail" id="type-avail" onclick="setType('available')">✅ Available</button>
         <button class="type-opt" id="type-holiday" onclick="setType('holiday')">🏖 Day Off</button>
       </div>
     </div>
+    <div id="avail-mode-row" class="field">
+      <label>How</label>
+      <div class="type-toggle">
+        <button class="type-opt sel-avail" id="mode-times" onclick="setAvailMode('times')">Enter times</button>
+        <button class="type-opt" id="mode-pattern" onclick="setAvailMode('pattern')">Use a pattern</button>
+      </div>
+    </div>
     <div id="time-row" style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><input type="time" id="slot-start" value="09:00"></div>
       <div class="field" style="flex:1;"><label>To</label><input type="time" id="slot-end" value="17:00"></div>
     </div>
-    <div class="field"><label>Note (optional)</label><input type="text" id="slot-note" placeholder="e.g. Can start earlier"></div>
+    <div id="pattern-pick-row" class="field" style="display:none;">
+      <label>Pattern (its shift times become your availability)</label>
+      <select id="slot-pattern" onchange="renderSlotPatternPreview()"><option value="">— choose —</option></select>
+      <div id="slot-pattern-preview" style="font-size:0.78rem;color:var(--muted);margin-top:6px;"></div>
+    </div>
+    <div class="field" id="slot-note-row"><label>Note (optional)</label><input type="text" id="slot-note" placeholder="e.g. Can start earlier"></div>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-slot')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmSlot()">Add</button>
@@ -951,9 +967,10 @@ const S = {
   shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
   patternBuild: [],     // shifts being assembled in the New Pattern modal
   editingShiftId: null,
-  pickedShiftId: null,   // unassigned shift currently picked up for placing
   editingPresetId: null,
   editingPatternId: null,
+  pickedPatternId: null,   // pattern picked up for tap-to-apply
+  draggedPatternId: null,  // pattern being dragged (desktop)
   slotType: 'available',
   mgrTab: 'overview',
   staffTab: 'avail',
@@ -1158,11 +1175,23 @@ async function initStaff() {
   document.getElementById('staff-name-label').textContent = S.name;
 
   await fetchMyAvail();
+  await fetchPatternsForStaff();
   renderStaffWeekStrip();
   renderDayPanel();
   setLoading(false);
   showScreen('screen-staff');
   subscribeRealtime();
+}
+
+async function fetchPatternsForStaff() {
+  const pt = await sb.from('patterns').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
+  S.patterns = [];
+  if (pt.ok && pt.data) {
+    for (const pat of pt.data) {
+      const ps = await sb.from('pattern_shifts').select('*', `pattern_id=eq.${pat.id}&order=start_time.asc`);
+      S.patterns.push({ id: pat.id, label: pat.label, shifts: (ps.ok && ps.data) ? ps.data : [] });
+    }
+  }
 }
 
 async function fetchMyAvail() {
@@ -1260,21 +1289,55 @@ function renderDayPanel() {
 }
 
 /* ── Slot CRUD ── */
+let availMode = 'times';   // 'times' | 'pattern'
+
 function openAddSlot() {
   S.slotType = 'available';
   document.getElementById('type-avail').className   = 'type-opt sel-avail';
   document.getElementById('type-holiday').className = 'type-opt';
-  document.getElementById('time-row').style.display = 'flex';
   document.getElementById('slot-note').value  = '';
   document.getElementById('slot-start').value = '09:00';
   document.getElementById('slot-end').value   = '17:00';
+  // populate pattern dropdown (staff can pick a manager-made pattern)
+  const pick = document.getElementById('slot-pattern');
+  pick.innerHTML = '<option value="">— choose —</option>' +
+    (S.patterns||[]).map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+  document.getElementById('slot-pattern-preview').textContent = '';
+  setAvailMode('times');
+  setType('available');
   openModal('modal-slot');
 }
+
 function setType(t) {
   S.slotType = t;
   document.getElementById('type-avail').className   = t === 'available' ? 'type-opt sel-avail' : 'type-opt';
   document.getElementById('type-holiday').className = t === 'holiday' ? 'type-opt sel-holiday' : 'type-opt';
-  document.getElementById('time-row').style.display = t === 'holiday' ? 'none' : 'flex';
+  const isHol = t === 'holiday';
+  // hide mode + times + pattern when marking a day off
+  document.getElementById('avail-mode-row').style.display = isHol ? 'none' : 'block';
+  document.getElementById('slot-note-row').style.display = isHol ? 'none' : 'block';
+  if (isHol) {
+    document.getElementById('time-row').style.display = 'none';
+    document.getElementById('pattern-pick-row').style.display = 'none';
+  } else {
+    setAvailMode(availMode);
+  }
+}
+
+function setAvailMode(m) {
+  availMode = m;
+  document.getElementById('mode-times').className   = m === 'times' ? 'type-opt sel-avail' : 'type-opt';
+  document.getElementById('mode-pattern').className = m === 'pattern' ? 'type-opt sel-avail' : 'type-opt';
+  document.getElementById('time-row').style.display = m === 'times' ? 'flex' : 'none';
+  document.getElementById('pattern-pick-row').style.display = m === 'pattern' ? 'block' : 'none';
+}
+
+function renderSlotPatternPreview() {
+  const pat = (S.patterns||[]).find(p => p.id === document.getElementById('slot-pattern').value);
+  const el = document.getElementById('slot-pattern-preview');
+  if (!pat) { el.textContent = ''; return; }
+  if (!pat.shifts.length) { el.textContent = 'This pattern has no shifts.'; return; }
+  el.textContent = 'Adds: ' + pat.shifts.map(s => `${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}`).join(', ');
 }
 
 async function confirmSlot() {
@@ -1286,6 +1349,16 @@ async function confirmSlot() {
     await saveAvailRow(dstr, null, null, true, note);
     if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
     S.myAvail[dstr].holiday = true;
+  } else if (availMode === 'pattern') {
+    const pat = (S.patterns||[]).find(p => p.id === document.getElementById('slot-pattern').value);
+    if (!pat) { toast('Choose a pattern'); return; }
+    if (!pat.shifts.length) { toast('That pattern has no shifts'); return; }
+    if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
+    for (const s of pat.shifts) {
+      const st = s.start_time.slice(0,5), en = s.end_time.slice(0,5);
+      await saveAvailRow(dstr, st, en, false, note);
+      S.myAvail[dstr].slots.push({ start: st, end: en, note, type: 'available' });
+    }
   } else {
     const start = document.getElementById('slot-start').value;
     const end   = document.getElementById('slot-end').value;
@@ -1518,56 +1591,96 @@ function timeOverlapsAvail(name, dstr, start, end) {
   return av.slots?.some(s => s.type === 'available' && s.start <= start && s.end >= end);
 }
 
-/* ── UNASSIGNED TRAY (pattern-created shifts awaiting a person) ── */
-function unassignedShifts() {
-  // shifts within the current visible week that have nobody assigned
-  const days = weekDays(S.mgrWeekStart).map(ds);
-  const out = [];
-  days.forEach(dstr => {
-    (S.shifts[dstr] || []).forEach(sh => {
-      if (!(sh.assigned || []).length) out.push({ ...sh, date: dstr });
-    });
-  });
-  return out;
-}
-
-function renderUnassignedTray() {
-  const tray = document.getElementById('unassigned-tray');
-  const items = unassignedShifts();
-  if (!items.length) { tray.innerHTML = ''; return; }
-
+/* ── PATTERN DRAG/TAP HELPERS ── */
+function renderPatternBar() {
+  const bar = document.getElementById('pattern-bar');
+  if (!bar) return;
+  if (!S.patterns.length) {
+    bar.innerHTML = '<div class="pbar"><div class="pbar-title">Patterns</div><div style="font-size:0.78rem;color:var(--muted);padding:2px 2px 10px;">No patterns yet — create them in the Patterns tab.</div></div>';
+    return;
+  }
   let banner = '';
-  if (S.pickedShiftId) {
+  if (S.pickedPatternId) {
+    const p = S.patterns.find(x => x.id === S.pickedPatternId);
     banner = `<div class="pickup-banner">
-      <span>Tap a staff member's cell to place this shift</span>
-      <button class="btn btn-ghost btn-sm" onclick="cancelPickup()">Cancel</button>
+      <span>Tap a person's day to apply “${p ? p.label : 'pattern'}”</span>
+      <button class="btn btn-ghost btn-sm" onclick="cancelPatternPickup()">Cancel</button>
     </div>`;
   }
-
-  const chips = items.map(sh => {
-    const d = new Date(sh.date + 'T12:00:00');
-    const picked = S.pickedShiftId === sh.id ? ' picked' : '';
-    return `<div class="tray-chip${picked}" onclick="pickupShift('${sh.id}')">
-      <span class="tc-day">${DAY_S[d.getDay()]} ${d.getDate()}</span>
-      <span class="tc-label">${sh.label || 'Shift'}</span>
-      <span class="tc-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span>
+  const chips = S.patterns.map(p => {
+    const picked = S.pickedPatternId === p.id ? ' picked' : '';
+    const meta = `${p.shifts.length} shift${p.shifts.length!==1?'s':''}`;
+    return `<div class="pat-chip${picked}" draggable="true"
+        ondragstart="onPatternDragStart(event,'${p.id}')"
+        ondragend="onPatternDragEnd(event)"
+        onclick="pickupPattern('${p.id}')">
+      <span class="pc-name">${p.label}</span>
+      <span class="pc-meta">${meta} · tap or drag</span>
     </div>`;
   }).join('');
-
-  tray.innerHTML = `${banner}<div class="tray"><div class="tray-title">Unassigned shifts · tap one, then tap a cell</div>
-    <div class="tray-strip">${chips}</div></div>`;
+  bar.innerHTML = `${banner}<div class="pbar"><div class="pbar-title">Patterns · tap one then a cell, or drag onto a cell</div>
+    <div class="pbar-strip">${chips}</div></div>`;
 }
 
-function pickupShift(shiftId) {
-  S.pickedShiftId = (S.pickedShiftId === shiftId) ? null : shiftId;
-  renderUnassignedTray();
+function pickupPattern(id) {
+  S.pickedPatternId = (S.pickedPatternId === id) ? null : id;
+  renderPatternBar();
+  renderShifts();
+}
+function cancelPatternPickup() {
+  S.pickedPatternId = null;
+  renderPatternBar();
   renderShifts();
 }
 
-function cancelPickup() {
-  S.pickedShiftId = null;
-  renderUnassignedTray();
+// Desktop drag
+function onPatternDragStart(ev, id) {
+  S.draggedPatternId = id;
+  ev.dataTransfer.effectAllowed = 'copy';
+  try { ev.dataTransfer.setData('text/plain', id); } catch {}
+  ev.target.classList.add('dragging');
+}
+function onPatternDragEnd(ev) {
+  S.draggedPatternId = null;
+  ev.target.classList.remove('dragging');
+}
+function onCellDragOver(ev) {
+  if (S.draggedPatternId) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; }
+}
+function onCellDrop(ev, encName, dstr) {
+  ev.preventDefault();
+  const id = S.draggedPatternId || ev.dataTransfer.getData('text/plain');
+  if (!id) return;
+  const prev = S.pickedPatternId;
+  S.pickedPatternId = id;          // reuse the apply path
+  applyPatternToCell(decodeURIComponent(encName), dstr);
+  S.draggedPatternId = null;
+  if (!prev) S.pickedPatternId = null;
+}
+
+// Apply the currently picked (or dropped) pattern's shifts to one person/day
+async function applyPatternToCell(name, dstr) {
+  const pat = S.patterns.find(p => p.id === S.pickedPatternId);
+  if (!pat) return;
+  if (!pat.shifts.length) { toast('That pattern has no shifts'); return; }
+  const dept = staffDepartment(name);
+  setLoading(true, 'Applying pattern…');
+  for (const s of pat.shifts) {
+    const res = await sb.from('shifts').insert({
+      team_id: S.teamId, date: dstr, label: s.label, department: dept,
+      start_time: s.start_time, end_time: s.end_time, staff_needed: 1
+    });
+    if (res.ok && res.data?.[0]) {
+      const shiftId = res.data[0].id;
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name] });
+      await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
+    }
+  }
+  setLoading(false);
+  S.pickedPatternId = null;
+  renderPatternBar();
   renderShifts();
+  toast(`Applied “${pat.label}” to ${name}`);
 }
 
 function findShiftById(shiftId) {
@@ -1589,16 +1702,34 @@ function shiftsForStaffDay(name, dstr) {
   return (S.shifts[dstr] || []).filter(sh => (sh.assigned || []).includes(name));
 }
 
+function shiftHours(sh) {
+  // hours as a decimal from "HH:MM" start/end (no break handling for now)
+  const [sh1,sm1] = sh.start.slice(0,5).split(':').map(Number);
+  const [sh2,sm2] = sh.end.slice(0,5).split(':').map(Number);
+  let mins = (sh2*60+sm2) - (sh1*60+sm1);
+  if (mins < 0) mins += 24*60; // overnight safety
+  return mins / 60;
+}
+function weeklyHoursFor(name) {
+  const days = weekDays(S.mgrWeekStart).map(ds);
+  let total = 0;
+  days.forEach(dstr => shiftsForStaffDay(name, dstr).forEach(sh => { total += shiftHours(sh); }));
+  return total;
+}
+function fmtHours(h) {
+  if (!h) return '0';
+  const whole = Math.floor(h);
+  const mins = Math.round((h - whole) * 60);
+  return mins ? `${whole}h ${mins}m` : `${whole}h`;
+}
+
 function renderShifts() {
   const days = weekDays(S.mgrWeekStart);
   document.getElementById('mgr-week-label').textContent = weekLabel(S.mgrWeekStart);
-  renderUnassignedTray();
+  renderPatternBar();
   const container = document.getElementById('shifts-container');
   container.innerHTML = '';
 
-  // If a shift is picked up, work out which day it belongs to (for cell highlight)
-  const picked = S.pickedShiftId ? findShiftById(S.pickedShiftId) : null;
-  const pickedDate = picked ? picked.dstr : null;
 
   const allNames = [...new Set([...S.staffList.map(s=>s.name), ...Object.keys(S.staffAvail)])];
   const depts = [
@@ -1629,7 +1760,7 @@ function renderShifts() {
         <span class="gh-dow">${DAY_S[d.getDay()]}</span>
         <span class="gh-date">${d.getDate()} ${MON_S[d.getMonth()]}</span></th>`;
     });
-    head += `</tr>`;
+    head += `<th class="grid-dayhead grid-hourshead">Hours</th></tr>`;
 
     // staff rows
     let rows = '';
@@ -1657,12 +1788,14 @@ function renderShifts() {
         } else {
           content = `<span class="cell-add">+</span>`;
         }
-        const dropReady = pickedDate && pickedDate === dstr && !(av && av.holiday);
-        cells += `<td class="grid-cell ${dropReady?'drop-ready':''}" onclick="onCellClick('${enc}','${dstr}')">${content}</td>`;
+        const dropReady = S.pickedPatternId && !(av && av.holiday);
+        cells += `<td class="grid-cell ${dropReady?'drop-ready':''}" onclick="onCellClick('${enc}','${dstr}')" ondragover="onCellDragOver(event)" ondrop="onCellDrop(event,'${enc}','${dstr}')">${content}</td>`;
       });
+      const wk = weeklyHoursFor(name);
       rows += `<tr>
         <td class="grid-staffcell"><span class="gs-avatar">${initials}</span><span class="gs-name">${name}</span></td>
-        ${cells}</tr>`;
+        ${cells}
+        <td class="grid-hours">${fmtHours(wk)}</td></tr>`;
     });
 
     html += `<div class="grid-scroll"><table class="rota-grid"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
@@ -1676,16 +1809,10 @@ function renderShifts() {
 function onCellClick(encName, dstr) {
   const name = decodeURIComponent(encName);
 
-  // If a shift is picked up from the tray, try to drop it here
-  if (S.pickedShiftId) {
-    const found = findShiftById(S.pickedShiftId);
-    if (found && found.dstr === dstr) {
-      placePickedShiftOn(name, found.sh, dstr);
-      return;
-    } else {
-      toast('That shift is for a different day');
-      return;
-    }
+  // If a pattern is picked up (tap-to-apply), apply it to this cell
+  if (S.pickedPatternId) {
+    applyPatternToCell(name, dstr);
+    return;
   }
 
   // Empty cell → open the day menu (add shift / apply pattern).
@@ -1812,29 +1939,6 @@ async function confirmPatternPick() {
   renderShifts();
   toast(`Added ${checks.length} shift${checks.length!==1?'s':''} to ${name}`);
 }
-
-async function placePickedShiftOn(name, sh, dstr) {
-  // optional availability warning
-  if (!timeOverlapsAvail(name, dstr, sh.start, sh.end)) {
-    const av = S.staffAvail[name]?.[dstr];
-    const msg = (av && av.holiday)
-      ? `${name} marked this day as off. Assign anyway?`
-      : `${name} hasn't said they're available then. Assign anyway?`;
-    if (!confirm(msg)) return;
-  }
-  sh.assigned = [name];
-  // department on the shift follows the staff member's department if not already set
-  if (!sh.department) {
-    sh.department = staffDepartment(name);
-    await sb.from('shifts').update({ department: sh.department }, `id=eq.${sh.id}`);
-  }
-  await sb.from('shift_assignments').delete(`shift_id=eq.${sh.id}`);
-  await sb.from('shift_assignments').insert({ shift_id: sh.id, team_id: S.teamId, staff_name: name });
-  S.pickedShiftId = null;
-  renderShifts();
-  toast(`Assigned to ${name}`);
-}
-
 
 function assignToShift(shiftId, slotIdx, name) {
   for (const dstr in S.shifts) {
