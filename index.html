@@ -450,6 +450,12 @@
     .cell-shift.cell-pattern { justify-content: center; min-height: 34px; font-weight: 800; }
     .cell-shift.cell-pattern .cs-label { font-size: 0.76rem; }
     .cell-shift.cell-pattern::after { content: '▾'; font-size: 0.6rem; opacity: 0.6; margin-top: 1px; }
+    .cell-clash {
+      background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800;
+      border-radius: 5px; padding: 2px 5px; margin-bottom: 3px;
+      letter-spacing: 0.02em; text-align: center;
+    }
+    .grid-cell.cell-has-clash { background: var(--red-dim); outline: 1.5px solid rgba(255,92,92,0.45); outline-offset: -2px; }
     .cell-more { font-size: 0.64rem; color: var(--muted); font-weight: 700; margin-top: 3px; padding: 2px; border-radius: 4px; }
     .cell-more:hover { color: var(--blue); background: var(--blue-dim); }
     .grid-cell { min-width: 92px; }
@@ -1678,10 +1684,39 @@ function onCellDrop(ev, encName, dstr) {
 }
 
 // Apply the currently picked (or dropped) pattern's shifts to one person/day
+function patternClashReason(pat, name, dstr) {
+  const proposed = pat.shifts.map(s => ({ start: s.start_time, end: s.end_time, label: s.label }));
+  // 1) any pattern shift vs the person's existing shifts that day
+  for (const p of proposed) {
+    const c = findClash(name, dstr, p.start, p.end);
+    if (c) return `would clash with ${c.label || 'an existing shift'} ${c.start.slice(0,5)}–${c.end.slice(0,5)}`;
+  }
+  // 2) pattern shifts overlapping each other
+  for (let i = 0; i < proposed.length; i++) {
+    for (let j = i+1; j < proposed.length; j++) {
+      if (rangesOverlap(proposed[i].start, proposed[i].end, proposed[j].start, proposed[j].end)) {
+        return `has overlapping shifts within itself (${proposed[i].start.slice(0,5)}–${proposed[i].end.slice(0,5)} and ${proposed[j].start.slice(0,5)}–${proposed[j].end.slice(0,5)})`;
+      }
+    }
+  }
+  return null;
+}
+
 async function applyPatternToCell(name, dstr) {
   const pat = S.patterns.find(p => p.id === S.pickedPatternId);
   if (!pat) return;
   if (!pat.shifts.length) { toast('That pattern has no shifts'); return; }
+
+  // HARD BLOCK: refuse the whole pattern if it would create any overlap
+  const reason = patternClashReason(pat, name, dstr);
+  if (reason) {
+    S.pickedPatternId = null;
+    renderPatternBar();
+    renderShifts();
+    toast(`Can't apply “${pat.label}” to ${name}: it ${reason}.`, 3800);
+    return;
+  }
+
   const dept = staffDepartment(name);
   // one group id per application so this pattern-on-this-day-for-this-person stays grouped
   const groupId = `${pat.id}-${dstr}-${name}-${Date.now()}`;
@@ -1722,6 +1757,36 @@ function staffDepartment(name) {
 function shiftsForStaffDay(name, dstr) {
   // shifts on this date that this staff member is assigned to
   return (S.shifts[dstr] || []).filter(sh => (sh.assigned || []).includes(name));
+}
+
+/* ── OVERLAP DETECTION ──
+   Times are "HH:MM". Two shifts clash only on a genuine overlap;
+   touching exactly at the boundary (16:00 end / 16:00 start) is allowed. */
+function toMins(t) {
+  const [h,m] = t.slice(0,5).split(':').map(Number);
+  return h*60 + m;
+}
+function rangesOverlap(aStart, aEnd, bStart, bEnd) {
+  const as = toMins(aStart), ae = toMins(aEnd), bs = toMins(bStart), be = toMins(bEnd);
+  // strict overlap: they share more than just a boundary point
+  return as < be && bs < ae;
+}
+// Returns the first existing shift for this person/day that clashes with the
+// given times, or null. Pass ignoreId to skip the shift being edited.
+function findClash(name, dstr, start, end, ignoreId) {
+  return shiftsForStaffDay(name, dstr).find(sh =>
+    sh.id !== ignoreId && rangesOverlap(start, end, sh.start, sh.end)
+  ) || null;
+}
+// Does this person have ANY overlapping pair on this day? (for the grid badge)
+function dayHasClash(name, dstr) {
+  const list = shiftsForStaffDay(name, dstr);
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i+1; j < list.length; j++) {
+      if (rangesOverlap(list[i].start, list[i].end, list[j].start, list[j].end)) return true;
+    }
+  }
+  return false;
 }
 
 function shiftHours(sh) {
@@ -1822,14 +1887,17 @@ function renderShifts() {
               <span class="cs-label">${lbl}</span>
               <span class="cs-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span></div>`;
           }).join('');
-          content = `${blocks}<div class="cell-more" onclick="event.stopPropagation(); openDayMenu('${enc}','${dstr}')">+ add</div>`;
+          const clash = dayHasClash(name, dstr);
+          const clashBadge = clash ? `<div class="cell-clash" title="Overlapping shifts">⚠ Overlap</div>` : '';
+          content = `${clashBadge}${blocks}<div class="cell-more" onclick="event.stopPropagation(); openDayMenu('${enc}','${dstr}')">+ add</div>`;
         } else if (av && av.holiday) {
           content = `<div class="cell-off">Day Off</div>`;
         } else {
           content = `<span class="cell-add">+</span>`;
         }
         const dropReady = S.pickedPatternId && !(av && av.holiday);
-        cells += `<td class="grid-cell ${dropReady?'drop-ready':''}" onclick="onCellClick('${enc}','${dstr}')" ondragover="onCellDragOver(event)" ondrop="onCellDrop(event,'${enc}','${dstr}')">${content}</td>`;
+        const hasClash = myShifts.length && dayHasClash(name, dstr);
+        cells += `<td class="grid-cell ${dropReady?'drop-ready':''} ${hasClash?'cell-has-clash':''}" onclick="onCellClick('${enc}','${dstr}')" ondragover="onCellDragOver(event)" ondrop="onCellDrop(event,'${enc}','${dstr}')">${content}</td>`;
       });
       const wk = weeklyHoursFor(name);
       rows += `<tr>
@@ -1914,6 +1982,14 @@ async function confirmEditShift() {
   const start = document.getElementById('es-start').value;
   const end   = document.getElementById('es-end').value;
   if (!start || !end || start >= end) { err('es-error','End time must be after start time'); return; }
+
+  // HARD BLOCK: edited times must not overlap this person's other shifts that day
+  const clash = findClash(editShiftCtx.name, editShiftCtx.dstr, start, end, editShiftCtx.id);
+  if (clash) {
+    err('es-error', `${editShiftCtx.name} already has ${clash.label || 'a shift'} ${clash.start.slice(0,5)}–${clash.end.slice(0,5)} that day. Shifts can't overlap.`);
+    return;
+  }
+
   await sb.from('shifts').update(
     { label: label || null, start_time: start, end_time: end, department: editShiftCtx.dept },
     `id=eq.${editShiftCtx.id}`
@@ -2024,6 +2100,22 @@ async function confirmPatternPick() {
   if (!checks.length) { err('pp-error','Select at least one shift'); return; }
   const { name, dstr } = patternPickCtx;
   const dept = staffDepartment(name);
+
+  // HARD BLOCK: selected shifts must not clash with existing ones or each other
+  const chosen = checks.map(i => ({ start: pat.shifts[i].start_time, end: pat.shifts[i].end_time, label: pat.shifts[i].label }));
+  for (const c of chosen) {
+    const ex = findClash(name, dstr, c.start, c.end);
+    if (ex) { err('pp-error', `${c.label||'A shift'} ${c.start.slice(0,5)}–${c.end.slice(0,5)} clashes with ${ex.label||'an existing shift'} ${ex.start.slice(0,5)}–${ex.end.slice(0,5)}.`); return; }
+  }
+  for (let a = 0; a < chosen.length; a++) {
+    for (let b = a+1; b < chosen.length; b++) {
+      if (rangesOverlap(chosen[a].start, chosen[a].end, chosen[b].start, chosen[b].end)) {
+        err('pp-error', `Selected shifts overlap each other (${chosen[a].start.slice(0,5)}–${chosen[a].end.slice(0,5)} and ${chosen[b].start.slice(0,5)}–${chosen[b].end.slice(0,5)}).`);
+        return;
+      }
+    }
+  }
+
   setLoading(true, 'Adding shifts…');
   for (const i of checks) {
     const s = pat.shifts[i];
@@ -2122,6 +2214,13 @@ async function confirmShift() {
   const end    = document.getElementById('shift-end').value;
   if (!name) { err('shift-modal-error','Choose a staff member'); return; }
   if (!start || !end || start >= end) { err('shift-modal-error','End time must be after start time'); return; }
+
+  // HARD BLOCK: a person cannot work two overlapping shifts on the same day
+  const clash = findClash(name, date, start, end);
+  if (clash) {
+    err('shift-modal-error', `${name} already has ${clash.label || 'a shift'} ${clash.start.slice(0,5)}–${clash.end.slice(0,5)} that day. Shifts can't overlap.`);
+    return;
+  }
 
   // Soft warning if outside availability (still allowed)
   if (!timeOverlapsAvail(name, date, start, end)) {
