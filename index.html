@@ -500,6 +500,7 @@
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
     }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -647,6 +648,7 @@
   <div class="scroll-body" id="mgr-tab-rota" style="display:none;">
     <div style="padding:12px 14px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-primary btn-sm" onclick="openAddShift()">+ Add Shift</button>
+      <button class="btn btn-ghost btn-sm" onclick="openExport()">⤓ Export</button>
       <button class="btn btn-green btn-sm" style="margin-left:auto;" onclick="publishShifts()">Publish</button>
     </div>
     <div id="pattern-bar"></div>
@@ -698,7 +700,7 @@
 
   <nav class="bottom-nav">
     <button class="nav-item active" id="mgr-nav-overview" onclick="switchMgrTab('overview')">
-      <span class="nav-icon">📊</span>Overview
+      <span class="nav-icon">📊</span>Availability
     </button>
     <button class="nav-item" id="mgr-nav-rota" onclick="switchMgrTab('rota')">
       <span class="nav-icon">📋</span>Shifts
@@ -935,14 +937,34 @@
   </div>
 </div>
 
+<!-- Export the rota -->
+<div class="modal-overlay" id="modal-export">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Export Rota</div>
+    <div class="t-sub">Choose the weeks to include. Exports are organised one week per page / sheet.</div>
+    <div style="display:flex;gap:12px;">
+      <div class="field" style="flex:1;"><label>From week (any date in it)</label><input type="date" id="export-from"></div>
+      <div class="field" style="flex:1;"><label>To week (any date in it)</label><input type="date" id="export-to"></div>
+    </div>
+    <div id="export-week-note" class="t-sub" style="color:var(--blue);"></div>
+    <div id="export-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="printRota()">🖨 Print (A4 landscape)</button>
+      <button class="btn btn-primary" onclick="exportRotaXlsx()">⤓ Spreadsheet (.xlsx)</button>
+    </div>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-export')">Close</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ════════════════════════════════════════
      SUPABASE CONFIG — PASTE YOUR VALUES HERE
 ═════════════════════════════════════════ -->
 <script>
-const SUPABASE_URL  = 'https://zmoytopjameydbsdbyky.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
+const SUPABASE_URL  = 'PASTE_YOUR_PROJECT_URL_HERE';
+const SUPABASE_ANON = 'PASTE_YOUR_ANON_KEY_HERE';
 </script>
 
 <script>
@@ -2279,6 +2301,193 @@ async function deleteShift(shiftId, dstr, opts = {}) {
 async function publishShifts() {
   // Shifts + assignments are already saved live; this is a confirmation action
   toast('✅ Published — staff can see their shifts');
+}
+
+/* ════════════════════════════════════════
+   EXPORT (print A4 landscape + xlsx)
+═════════════════════════════════════════ */
+function openExport() {
+  const from = ds(S.mgrWeekStart);
+  const wkEnd = new Date(S.mgrWeekStart); wkEnd.setDate(wkEnd.getDate()+6);
+  document.getElementById('export-from').value = from;
+  document.getElementById('export-to').value = ds(wkEnd);
+  err('export-error','');
+  updateExportWeekNote();
+  document.getElementById('export-from').onchange = updateExportWeekNote;
+  document.getElementById('export-to').onchange = updateExportWeekNote;
+  openModal('modal-export');
+}
+
+function exportWeekStarts() {
+  // returns an array of Monday Date objects, one per week spanned by the range
+  const fromV = document.getElementById('export-from').value;
+  const toV   = document.getElementById('export-to').value;
+  if (!fromV || !toV) return [];
+  let a = monOf(new Date(fromV + 'T12:00:00'));
+  let b = monOf(new Date(toV + 'T12:00:00'));
+  if (a > b) { const t = a; a = b; b = t; }
+  const weeks = [];
+  for (let d = new Date(a); d <= b; d.setDate(d.getDate()+7)) weeks.push(new Date(d));
+  return weeks;
+}
+
+function updateExportWeekNote() {
+  const weeks = exportWeekStarts();
+  const note = document.getElementById('export-week-note');
+  note.textContent = weeks.length ? `${weeks.length} week${weeks.length!==1?'s':''} will be exported (${weekLabel(weeks[0])}${weeks.length>1?' … '+weekLabel(weeks[weeks.length-1]):''}).` : '';
+}
+
+// Fetch all shifts + assignments for a date range, return a structure for export
+async function gatherRota(weekStarts) {
+  if (!weekStarts.length) return [];
+  const first = ds(weekStarts[0]);
+  const lastEnd = new Date(weekStarts[weekStarts.length-1]); lastEnd.setDate(lastEnd.getDate()+6);
+  const last = ds(lastEnd);
+
+  const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&date=gte.${first}&date=lte.${last}&order=date.asc,start_time.asc`);
+  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}`);
+  const asgByShift = {};
+  if (asg.ok && asg.data) asg.data.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
+
+  const byDate = {};
+  if (shf.ok && shf.data) {
+    shf.data.forEach(s => {
+      (byDate[s.date] ||= []).push({
+        id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
+        department: s.department || 'foh', assigned: asgByShift[s.id] || []
+      });
+    });
+  }
+
+  // Build per-week: for each week, list staff rows (per department) x days with shift text
+  return weekStarts.map(mon => {
+    const days = weekDays(mon);
+    const allNames = new Set();
+    days.forEach(d => (byDate[ds(d)]||[]).forEach(sh => sh.assigned.forEach(n => allNames.add(n))));
+    const names = [...allNames].sort();
+
+    const depts = [
+      { key:'kitchen', title:'Kitchen' },
+      { key:'foh', title:'Front of House' },
+    ];
+
+    const sections = depts.map(dept => {
+      // names that have a shift of this dept somewhere this week
+      const deptNames = names.filter(n => days.some(d =>
+        (byDate[ds(d)]||[]).some(sh => sh.department===dept.key && sh.assigned.includes(n))
+      ));
+      const rows = deptNames.map(name => {
+        const cells = days.map(d => {
+          const list = (byDate[ds(d)]||[]).filter(sh => sh.department===dept.key && sh.assigned.includes(name));
+          return list.map(sh => `${sh.label?sh.label+' ':''}${sh.start.slice(0,5)}-${sh.end.slice(0,5)}`).join(' / ');
+        });
+        // weekly hours for this dept
+        let mins = 0;
+        days.forEach(d => (byDate[ds(d)]||[]).filter(sh=>sh.department===dept.key && sh.assigned.includes(name)).forEach(sh=>{
+          const a = parseInt(sh.start.slice(0,2))*60+parseInt(sh.start.slice(3,5));
+          const b = parseInt(sh.end.slice(0,2))*60+parseInt(sh.end.slice(3,5));
+          mins += (b-a+1440)%1440;
+        }));
+        return { name, cells, hours: mins/60 };
+      });
+      return { title: dept.title, rows };
+    });
+
+    return { mon, days, sections };
+  });
+}
+
+function hoursLabel(h) { const w=Math.floor(h); const m=Math.round((h-w)*60); return m?`${w}h ${m}m`:`${w}h`; }
+
+async function printRota() {
+  const weeks = exportWeekStarts();
+  if (!weeks.length) { err('export-error','Choose a valid date range'); return; }
+  setLoading(true, 'Preparing print…');
+  const data = await gatherRota(weeks);
+  setLoading(false);
+
+  const dayHead = (d) => `${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`;
+  let body = '';
+  data.forEach((wk, wi) => {
+    body += `<div class="wk ${wi>0?'pb':''}">
+      <h2>${S.teamName} — Rota</h2>
+      <h3>Week of ${weekLabel(wk.mon)}</h3>`;
+    wk.sections.forEach(sec => {
+      if (!sec.rows.length) return;
+      body += `<h4>${sec.title}</h4><table><thead><tr><th class="nm">Staff</th>`;
+      wk.days.forEach(d => body += `<th>${dayHead(d)}</th>`);
+      body += `<th class="hr">Hours</th></tr></thead><tbody>`;
+      sec.rows.forEach(r => {
+        body += `<tr><td class="nm">${r.name}</td>`;
+        r.cells.forEach(c => body += `<td>${c || ''}</td>`);
+        body += `<td class="hr">${hoursLabel(r.hours)}</td></tr>`;
+      });
+      body += `</tbody></table>`;
+    });
+    if (!wk.sections.some(s => s.rows.length)) body += `<p class="empty">No shifts scheduled this week.</p>`;
+    body += `</div>`;
+  });
+
+  const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rota</title>
+  <style>
+    @page { size: A4 landscape; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 0; }
+    h2 { margin: 0 0 2px; font-size: 18px; }
+    h3 { margin: 0 0 10px; font-size: 13px; color: #444; font-weight: normal; }
+    h4 { margin: 14px 0 4px; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
+    th, td { border: 1px solid #999; padding: 4px 5px; font-size: 10px; text-align: center; word-wrap: break-word; }
+    th { background: #222; color: #fff; }
+    td.nm, th.nm { text-align: left; width: 90px; font-weight: bold; background: #f0f0f0; }
+    td.hr, th.hr { width: 56px; font-weight: bold; background: #f7f7f7; }
+    .wk.pb { page-break-before: always; }
+    .empty { color: #888; font-style: italic; }
+  </style></head><body>${body}</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('Allow pop-ups to print'); return; }
+  w.document.write(doc);
+  w.document.close();
+  w.focus();
+  setTimeout(() => { w.print(); }, 400);
+}
+
+async function exportRotaXlsx() {
+  const weeks = exportWeekStarts();
+  if (!weeks.length) { err('export-error','Choose a valid date range'); return; }
+  if (typeof XLSX === 'undefined') { toast('Spreadsheet library still loading — try again in a moment'); return; }
+  setLoading(true, 'Building spreadsheet…');
+  const data = await gatherRota(weeks);
+
+  const wb = XLSX.utils.book_new();
+  data.forEach(wk => {
+    const aoa = [];
+    aoa.push([`${S.teamName} — Rota`]);
+    aoa.push([`Week of ${weekLabel(wk.mon)}`]);
+    aoa.push([]);
+    const headerDays = wk.days.map(d => `${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`);
+    wk.sections.forEach(sec => {
+      if (!sec.rows.length) return;
+      aoa.push([sec.title]);
+      aoa.push(['Staff', ...headerDays, 'Hours']);
+      sec.rows.forEach(r => aoa.push([r.name, ...r.cells, hoursLabel(r.hours)]));
+      aoa.push([]);
+    });
+    if (!wk.sections.some(s=>s.rows.length)) aoa.push(['No shifts scheduled this week.']);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:16}, ...wk.days.map(()=>({wch:16})), {wch:9}];
+    // sheet name: short week label, sanitised (Excel max 31 chars, no special chars)
+    let nm = weekLabel(wk.mon).replace(/[\\/?*\[\]:]/g,'-').slice(0,28);
+    XLSX.utils.book_append_sheet(wb, ws, nm || 'Week');
+  });
+
+  const first = ds(weeks[0]);
+  const last = ds(weeks[weeks.length-1]);
+  XLSX.writeFile(wb, `rota-${first}-to-${last}.xlsx`);
+  setLoading(false);
+  toast('Spreadsheet downloaded');
 }
 
 /* ── PRESETS ── */
