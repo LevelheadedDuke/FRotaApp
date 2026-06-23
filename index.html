@@ -803,8 +803,8 @@
     </div>
     <div class="field"><label>Label shown on rota</label><input type="text" id="shift-label" placeholder="e.g. Kitchen"></div>
     <div style="display:flex;gap:12px;">
-      <div class="field" style="flex:1;"><label>From</label><select id="shift-start"></select></div>
-      <div class="field" style="flex:1;"><label>To</label><select id="shift-end"></select></div>
+      <div class="field" style="flex:1;"><label>From</label><select id="shift-start" onchange="onShiftTimeChange()"></select></div>
+      <div class="field" style="flex:1;"><label>To</label><select id="shift-end" onchange="onShiftTimeChange()"></select></div>
     </div>
     <div class="field"><label>Date</label><input type="text" id="shift-date" readonly></div>
     <div id="shift-avail-note" style="font-size:0.78rem;color:var(--muted);display:none;"></div>
@@ -1913,6 +1913,25 @@ async function applyPatternToCell(name, dstr) {
     return;
   }
 
+  // AVAILABILITY WARNING: check each shift against what the person said they can work
+  const av = S.staffAvail[name]?.[dstr];
+  const outside = pat.shifts.filter(s => !timeOverlapsAvail(name, dstr, s.start_time.slice(0,5), s.end_time.slice(0,5)));
+  if (outside.length) {
+    let msg;
+    if (av && av.holiday) {
+      msg = `${name} marked ${dstr} as a day off. Apply “${pat.label}” anyway?`;
+    } else {
+      const list = outside.map(s => fmtRange(s.start_time, s.end_time)).join(', ');
+      msg = `${name} hasn't said they're available for ${list}. Apply “${pat.label}” anyway?`;
+    }
+    if (!confirm(msg)) {
+      S.pickedPatternId = null;
+      renderPatternBar();
+      renderShifts();
+      return;
+    }
+  }
+
   const dept = staffDepartment(name);
   // one group id per application so this pattern-on-this-day-for-this-person stays grouped
   const groupId = `${pat.id}-${dstr}-${name}-${Date.now()}`;
@@ -2212,6 +2231,12 @@ async function confirmEditShift() {
   const found = findShiftById(editShiftCtx.id);
   if (found) {
     found.sh.label = label; found.sh.start = start; found.sh.end = end; found.sh.department = editShiftCtx.dept;
+    // If this shift was part of a pattern, the pattern's been customised for this day —
+    // ungroup the whole group so it shows the real individual times, not the pattern name.
+    if (found.sh.patternGroup) {
+      const grp = groupShifts(editShiftCtx.name, editShiftCtx.dstr, found.sh.patternGroup);
+      await ungroupShifts(grp);
+    }
   }
   closeModal('modal-editshift');
   renderShifts();
@@ -2264,12 +2289,25 @@ function editGroupShift(shiftId) {
   openEditShift(shiftId, encodeURIComponent(patGroupCtx.name), patGroupCtx.dstr);
 }
 
+// Clear the pattern tag from a set of shifts so they display individually
+async function ungroupShifts(shifts) {
+  for (const sh of shifts) {
+    await sb.from('shifts').update({ pattern_name: null, pattern_group: null }, `id=eq.${sh.id}`);
+    sh.patternName = null;
+    sh.patternGroup = null;
+  }
+}
+
 async function removeGroupShift(shiftId) {
-  await deleteShift(shiftId, patGroupCtx.dstr, { quiet: true });
+  const { name, dstr, group } = patGroupCtx;
+  setLoading(true, 'Updating…');
+  await deleteShift(shiftId, dstr, { quiet: true });
+  // The pattern has been altered — ungroup whatever remains so it shows individually.
+  const remaining = groupShifts(name, dstr, group);
+  if (remaining.length) await ungroupShifts(remaining);
+  setLoading(false);
+  closeModal('modal-patgroup');
   renderShifts();
-  const remaining = groupShifts(patGroupCtx.name, patGroupCtx.dstr, patGroupCtx.group);
-  if (!remaining.length) { closeModal('modal-patgroup'); }
-  else renderPatGroupList();
 }
 
 async function removePatternGroup() {
@@ -2375,6 +2413,7 @@ async function saveShiftAssignments(shiftId) {
 
 /* ── Add / edit a single shift ── */
 let shiftFormDept = 'foh';
+let shiftAutoLabel = '';   // last label the app auto-filled (so it can be replaced, not manual labels)
 
 function deptOptionsHtml(selected) {
   return DEPARTMENTS.map(x => `<option value="${x.key}" ${x.key===selected?'selected':''}>${x.title}</option>`).join('');
@@ -2412,6 +2451,8 @@ function openAddShift(dstr, presetName, deptHint) {
   pick.innerHTML = '<option value="">— Custom —</option>' +
     S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
 
+  shiftAutoLabel = '';
+  onShiftTimeChange();   // auto-name if the default 09:00–13:00 happens to match something
   err('shift-modal-error','');
   openModal('modal-shift');
 }
@@ -2423,6 +2464,39 @@ function applyPresetToShiftForm() {
   document.getElementById('shift-label').value  = p.label;
   fillTimeSelect('shift-start', p.start_time.slice(0,5));
   fillTimeSelect('shift-end', p.end_time.slice(0,5));
+}
+
+// Find a named shift (a preset, or a shift inside a pattern) whose times match start/end.
+// Returns the name to use, or null if nothing matches.
+function matchNamedShift(start, end) {
+  const s = start.slice(0,5), e = end.slice(0,5);
+  // 1) presets
+  const preset = (S.presets||[]).find(p => p.start_time.slice(0,5) === s && p.end_time.slice(0,5) === e);
+  if (preset && preset.label) return preset.label;
+  // 2) shifts inside patterns
+  for (const pat of (S.patterns||[])) {
+    const ps = (pat.shifts||[]).find(x => x.start_time.slice(0,5) === s && x.end_time.slice(0,5) === e);
+    if (ps && ps.label) return ps.label;
+  }
+  return null;
+}
+
+// When the manager changes the From/To times on the Add Shift form, auto-fill the
+// label if those times match a known preset/pattern shift — but only if the label
+// is empty or still a generic department/auto value (so a manual label is kept).
+function onShiftTimeChange() {
+  const start = document.getElementById('shift-start').value;
+  const end   = document.getElementById('shift-end').value;
+  if (!start || !end) return;
+  const matched = matchNamedShift(start, end);
+  if (!matched) return;
+  const lblEl = document.getElementById('shift-label');
+  const cur = lblEl.value.trim();
+  const isAuto = !cur || DEPARTMENTS.some(x => x.title === cur) || cur === shiftAutoLabel;
+  if (isAuto) {
+    lblEl.value = matched;
+    shiftAutoLabel = matched; // remember what we auto-set, so later auto-changes can replace it
+  }
 }
 
 async function confirmShift() {
