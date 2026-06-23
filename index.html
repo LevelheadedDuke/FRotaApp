@@ -1185,11 +1185,12 @@ async function showSetup(mode) {
 
   // The manager-pin field is reused for the supervisor's access word; relabel it accordingly.
   const pinLabel = document.querySelector('#field-manager-pin label');
-  if (pinLabel) pinLabel.textContent = isSupervisor ? 'Access word' : 'Manager PIN';
+  if (pinLabel) pinLabel.textContent = isSupervisor ? 'Access code' : 'Manager PIN';
   const pinInput = document.getElementById('setup-manager-pin');
   if (pinInput) {
     pinInput.type = isSupervisor ? 'text' : 'password';
-    pinInput.placeholder = isSupervisor ? "Type TEST" : 'Enter manager PIN';
+    pinInput.inputMode = isSupervisor ? 'numeric' : 'numeric';
+    pinInput.placeholder = isSupervisor ? "Type 1234" : 'Enter manager PIN';
   }
   // Name field is hidden for supervisor too
   if (isSupervisor) document.getElementById('field-name').style.display = 'none';
@@ -1205,7 +1206,7 @@ async function showSetup(mode) {
     document.getElementById('setup-btn').textContent   = 'Log In';
   } else if (isSupervisor) {
     document.getElementById('setup-title').textContent = 'Supervisor (test)';
-    document.getElementById('setup-sub').textContent   = 'Enter the team code and the access word to try out the manager tools. This edits the real rota.';
+    document.getElementById('setup-sub').textContent   = 'Enter the team code and the access code to try out the manager tools. This edits the real rota.';
     document.getElementById('setup-btn').textContent   = 'Enter Test Mode';
   } else {
     document.getElementById('setup-title').textContent = 'Staff login';
@@ -1269,11 +1270,11 @@ async function confirmSetup() {
       await initManager();
 
     } else if (setupMode === 'supervisor') {
-      // SUPERVISOR TEST LOGIN: team code + the access word TEST (no manager PIN)
+      // SUPERVISOR TEST LOGIN: team code + the access code 1234 (no manager PIN)
       const code = document.getElementById('setup-join').value.trim().toUpperCase();
       const word = document.getElementById('setup-manager-pin').value.trim().toUpperCase();
       if (!code) { err('setup-error','Please enter the team code'); setLoading(false); return; }
-      if (word !== 'TEST') { err('setup-error','Access word is incorrect'); setLoading(false); return; }
+      if (word !== '1234') { err('setup-error','Access code is incorrect'); setLoading(false); return; }
 
       const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
       if (!res.ok || !res.data?.length) { err('setup-error','Team code not found'); setLoading(false); return; }
