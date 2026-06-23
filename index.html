@@ -226,6 +226,8 @@
     table.ov tr:last-child td { border-bottom: none; }
     table.ov tr:hover td { background: var(--night-3); }
     .cell-avail   { color: var(--green); font-weight: 700; }
+    .ov td.cell-avail, .ov td.cell-holiday { white-space: normal; min-width: 92px; }
+    .nowrap { white-space: nowrap; display: inline-block; }
     .cell-holiday { color: var(--amber); font-weight: 700; }
     .cell-empty   { color: var(--rim); }
 
@@ -438,6 +440,8 @@
     }
     .cell-shift.k  { background: rgba(79,124,255,0.14);  color: #aaccff; border: 1px solid rgba(79,124,255,0.3); }
     .cell-shift.f  { background: rgba(34,201,142,0.14);  color: #8ff0cf; border: 1px solid rgba(34,201,142,0.3); }
+    .cell-shift.o  { background: rgba(245,166,35,0.14);  color: #f5d199; border: 1px solid rgba(245,166,35,0.3); }
+    .cell-shift.c  { background: rgba(201,142,240,0.14); color: #e3c5f5; border: 1px solid rgba(201,142,240,0.3); }
     .cell-shift .cs-label { font-weight: 800; }
     .cell-shift .cs-time  { opacity: 0.9; font-weight: 600; }
     .cell-off {
@@ -475,6 +479,8 @@
     }
     .seg-opt.on-k { border-color: var(--blue);  background: var(--blue-dim);  color: var(--blue); }
     .seg-opt.on-f { border-color: var(--green); background: var(--green-dim); color: var(--green); }
+    .seg-opt.on-o { border-color: var(--amber); background: var(--amber-dim); color: var(--amber); }
+    .seg-opt.on-c { border-color: #c98ef0; background: rgba(201,142,240,0.12); color: #c98ef0; }
 
     /* ── PATTERN BAR (draggable / tappable) ── */
     .pbar { margin: 6px 14px 0; }
@@ -788,10 +794,7 @@
       <select id="shift-staff-pick" onchange="setShiftDept(staffDepartment(this.value))"></select>
     </div>
     <div class="field"><label>Department</label>
-      <div class="seg-toggle">
-        <button type="button" class="seg-opt" id="shift-dept-k" onclick="setShiftDept('kitchen')">Kitchen</button>
-        <button type="button" class="seg-opt" id="shift-dept-f" onclick="setShiftDept('foh')">Front of House</button>
-      </div>
+      <select id="shift-dept" onchange="setShiftDept(this.value)"></select>
     </div>
     <div class="field"><label>Use a preset (optional)</label>
       <select id="shift-preset-pick" onchange="applyPresetToShiftForm()">
@@ -895,10 +898,7 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Edit Shift</div>
     <div class="field"><label>Department</label>
-      <div class="seg-toggle">
-        <button type="button" class="seg-opt" id="es-dept-k" onclick="setEditShiftDept('kitchen')">Kitchen</button>
-        <button type="button" class="seg-opt" id="es-dept-f" onclick="setEditShiftDept('foh')">Front of House</button>
-      </div>
+      <select id="es-dept" onchange="setEditShiftDept(this.value)"></select>
     </div>
     <div class="field"><label>Use a preset (optional)</label>
       <select id="es-preset" onchange="applyPresetToEditForm()"><option value="">— Custom —</option></select>
@@ -977,10 +977,7 @@
     <div class="t-sub">A unique 4-digit login code is created automatically. Share it with them — they log in with the team code plus this code.</div>
     <div class="field"><label>Name</label><input type="text" id="add-staff-name" placeholder="e.g. Sharon"></div>
     <div class="field"><label>Department</label>
-      <select id="add-staff-dept">
-        <option value="foh">Front of House</option>
-        <option value="kitchen">Kitchen</option>
-      </select>
+      <select id="add-staff-dept"></select>
     </div>
     <div id="add-staff-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
     <div class="modal-row">
@@ -1079,6 +1076,16 @@ function loadSession() {
 const DAY_S = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DAY_L = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MON_S = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Central department list — add/edit here and the whole app follows.
+const DEPARTMENTS = [
+  { key: 'kitchen',  title: 'Kitchen',         dot: 'var(--blue)',   cls: 'k' },
+  { key: 'foh',      title: 'Front of House',  dot: 'var(--green)',  cls: 'f' },
+  { key: 'office',   title: 'Office',          dot: 'var(--amber)',  cls: 'o' },
+  { key: 'cleaners', title: 'Cleaners',        dot: '#c98ef0',       cls: 'c' },
+];
+function deptTitle(key) { const d = DEPARTMENTS.find(x => x.key === key); return d ? d.title : 'Front of House'; }
+function deptCls(key)   { const d = DEPARTMENTS.find(x => x.key === key); return d ? d.cls : 'f'; }
 
 function monOf(d) {
   const r = new Date(d); r.setHours(0,0,0,0);
@@ -1591,10 +1598,7 @@ function renderStaffRota() {
   Object.values(staffRotaData.shifts).forEach(list => list.forEach(sh => sh.assigned.forEach(n => shiftNames.add(n))));
   const allNames = [...new Set([...staffRotaData.staffList.map(s=>s.name), ...shiftNames])];
 
-  const depts = [
-    { key:'kitchen', title:'Kitchen', dot:'var(--blue)', cls:'k' },
-    { key:'foh', title:'Front of House', dot:'var(--green)', cls:'f' },
-  ];
+  const depts = DEPARTMENTS;
   const today = ds(new Date());
 
   let anything = false;
@@ -1633,7 +1637,7 @@ function renderStaffRota() {
         const list = (staffRotaData.shifts[dstr]||[]).filter(sh => (sh.department||staffRotaDept(name))===dept.key && sh.assigned.includes(name));
         let content = '';
         if (list.length) {
-          content = list.map(sh => `<div class="cell-shift ${dept.cls}"><span class="cs-label">${sh.label||dept.title}</span><span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`).join('');
+          content = list.map(sh => `<div class="cell-shift ${dept.cls}"><span class="cs-label">${sh.label||deptTitle(dept.key)}</span><span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`).join('');
         }
         cells += `<td class="grid-cell" style="cursor:default;">${content}</td>`;
       });
@@ -1790,8 +1794,8 @@ function renderMgrOverview() {
       const avail = S.staffAvail[name]?.[dstr];
       if (!avail || (!avail.slots?.length && !avail.holiday)) return '<td class="cell-empty">—</td>';
       if (avail.holiday) return '<td class="cell-holiday">🏖 Off</td>';
-      const times = avail.slots.map(s => s.allDay ? 'All day' : fmtRange(s.start, s.end)).join('<br>');
-      return `<td class="cell-avail">✅ ${times}</td>`;
+      const times = avail.slots.map(s => `<span class="nowrap">${s.allDay ? 'All day' : fmtRange(s.start, s.end)}</span>`).join('<br>');
+      return `<td class="cell-avail">${times}</td>`;
     }).join('');
     return `<tr><td style="font-weight:700;white-space:nowrap;">${name}</td>${cells}</tr>`;
   }).join('');
@@ -2034,10 +2038,7 @@ function renderShifts() {
 
 
   const allNames = [...new Set([...S.staffList.map(s=>s.name), ...Object.keys(S.staffAvail)])];
-  const depts = [
-    { key: 'kitchen', title: 'Kitchen',          dot: 'var(--blue)',  cls: 'k' },
-    { key: 'foh',     title: 'Front of House',   dot: 'var(--green)', cls: 'f' },
-  ];
+  const depts = DEPARTMENTS;
   const today = ds(new Date());
 
   depts.forEach(dept => {
@@ -2098,7 +2099,7 @@ function renderShifts() {
                 <span class="cs-label">${g.name}</span></div>`;
             }
             const sh = g.sh;
-            const lbl = sh.label || (dept.key==='kitchen'?'Kitchen':'Front of House');
+            const lbl = sh.label || deptTitle(dept.key);
             return `<div class="cell-shift ${dept.cls}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
               <span class="cs-label">${lbl}</span>
               <span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`;
@@ -2150,7 +2151,7 @@ let dayMenuCtx = { name: '', dstr: '', dept: 'foh' };
 function openDayMenu(encName, dstr, deptKey) {
   dayMenuCtx = { name: decodeURIComponent(encName), dstr, dept: deptKey || staffDepartment(decodeURIComponent(encName)) };
   const d = new Date(dstr + 'T12:00:00');
-  const deptLabel = dayMenuCtx.dept === 'kitchen' ? 'Kitchen' : 'Front of House';
+  const deptLabel = deptTitle(dayMenuCtx.dept);
   document.getElementById('daymenu-title').textContent = `${dayMenuCtx.name} · ${deptLabel} · ${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`;
   openModal('modal-daymenu');
 }
@@ -2167,8 +2168,7 @@ function dayMenuApplyPattern() {
 let editShiftCtx = { id: '', name: '', dstr: '', dept: 'foh' };
 function setEditShiftDept(d) {
   editShiftCtx.dept = d;
-  document.getElementById('es-dept-k').className = 'seg-opt' + (d==='kitchen' ? ' on-k' : '');
-  document.getElementById('es-dept-f').className = 'seg-opt' + (d==='foh' ? ' on-f' : '');
+  document.getElementById('es-dept').innerHTML = deptOptionsHtml(d);
 }
 function applyPresetToEditForm() {
   const p = S.presets.find(x => x.id === document.getElementById('es-preset').value);
@@ -2376,13 +2376,17 @@ async function saveShiftAssignments(shiftId) {
 /* ── Add / edit a single shift ── */
 let shiftFormDept = 'foh';
 
+function deptOptionsHtml(selected) {
+  return DEPARTMENTS.map(x => `<option value="${x.key}" ${x.key===selected?'selected':''}>${x.title}</option>`).join('');
+}
+
 function setShiftDept(d) {
   shiftFormDept = d;
-  document.getElementById('shift-dept-k').className = 'seg-opt' + (d==='kitchen' ? ' on-k' : '');
-  document.getElementById('shift-dept-f').className = 'seg-opt' + (d==='foh' ? ' on-f' : '');
-  if (!document.getElementById('shift-label').value.trim() || ['Kitchen','Front of House'].includes(document.getElementById('shift-label').value.trim())) {
-    document.getElementById('shift-label').value = (d==='kitchen' ? 'Kitchen' : 'Front of House');
-  }
+  document.getElementById('shift-dept').innerHTML = deptOptionsHtml(d);
+  // auto-fill the label if it's empty or still a department name
+  const lblEl = document.getElementById('shift-label');
+  const cur = lblEl.value.trim();
+  if (!cur || DEPARTMENTS.some(x => x.title === cur)) lblEl.value = deptTitle(d);
 }
 
 function openAddShift(dstr, presetName, deptHint) {
@@ -2535,10 +2539,7 @@ async function gatherRota(weekStarts) {
     days.forEach(d => (byDate[ds(d)]||[]).forEach(sh => sh.assigned.forEach(n => allNames.add(n))));
     const names = [...allNames].sort();
 
-    const depts = [
-      { key:'kitchen', title:'Kitchen' },
-      { key:'foh', title:'Front of House' },
-    ];
+    const depts = DEPARTMENTS;
 
     const sections = depts.map(dept => {
       // names that have a shift of this dept somewhere this week
@@ -2925,8 +2926,7 @@ function renderStaffListMgr() {
       <div class="staff-right" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         ${codeHtml}
         <select class="rota-select" style="min-width:110px;" onchange="setStaffDept('${encodeURIComponent(name)}', this.value)">
-          <option value="kitchen" ${dept==='kitchen'?'selected':''}>Kitchen</option>
-          <option value="foh" ${dept==='foh'?'selected':''}>Front of House</option>
+          ${DEPARTMENTS.map(x=>`<option value="${x.key}" ${dept===x.key?'selected':''}>${x.title}</option>`).join('')}
         </select>
         <button class="btn btn-danger btn-sm" onclick="deleteStaffMember('${encodeURIComponent(name)}')">✕</button>
       </div>
@@ -2958,6 +2958,7 @@ async function generateStaffCode(encName) {
 /* ── Add a new staff member (manager creates name + code) ── */
 function openAddStaff() {
   document.getElementById('add-staff-name').value = '';
+  document.getElementById('add-staff-dept').innerHTML = DEPARTMENTS.map(x=>`<option value="${x.key}">${x.title}</option>`).join('');
   document.getElementById('add-staff-dept').value = 'foh';
   err('add-staff-error','');
   openModal('modal-addstaff');
@@ -3006,7 +3007,7 @@ async function setStaffDept(encName, dept) {
     const r = await sb.from('staff_members').upsert({ team_id: S.teamId, name, department: dept }, 'team_id,name');
     S.staffList.push({ name, department: dept });
   }
-  toast(`${name} → ${dept==='kitchen'?'Kitchen':'Front of House'}`);
+  toast(`${name} → ${deptTitle(dept)}`);
   if (S.mgrTab === 'rota') renderShifts();
 }
 
