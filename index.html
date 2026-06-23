@@ -793,8 +793,8 @@
     </div>
     <div class="field"><label>Label shown on rota</label><input type="text" id="shift-label" placeholder="e.g. Kitchen"></div>
     <div style="display:flex;gap:12px;">
-      <div class="field" style="flex:1;"><label>From</label><input type="time" id="shift-start" value="09:00"></div>
-      <div class="field" style="flex:1;"><label>To</label><input type="time" id="shift-end" value="13:00"></div>
+      <div class="field" style="flex:1;"><label>From</label><select id="shift-start"></select></div>
+      <div class="field" style="flex:1;"><label>To</label><select id="shift-end"></select></div>
     </div>
     <div class="field"><label>Date</label><input type="text" id="shift-date" readonly></div>
     <div id="shift-avail-note" style="font-size:0.78rem;color:var(--muted);display:none;"></div>
@@ -813,8 +813,8 @@
     <div class="modal-title">New Preset</div>
     <div class="field"><label>Label</label><input type="text" id="preset-label" placeholder="e.g. Morning"></div>
     <div style="display:flex;gap:12px;">
-      <div class="field" style="flex:1;"><label>From</label><input type="time" id="preset-start" value="09:00"></div>
-      <div class="field" style="flex:1;"><label>To</label><input type="time" id="preset-end" value="13:00"></div>
+      <div class="field" style="flex:1;"><label>From</label><select id="preset-start"></select></div>
+      <div class="field" style="flex:1;"><label>To</label><select id="preset-end"></select></div>
     </div>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-preset')">Cancel</button>
@@ -898,8 +898,8 @@
     </div>
     <div class="field"><label>Label shown on rota</label><input type="text" id="es-label" placeholder="e.g. Kitchen"></div>
     <div style="display:flex;gap:12px;">
-      <div class="field" style="flex:1;"><label>From</label><input type="time" id="es-start"></div>
-      <div class="field" style="flex:1;"><label>To</label><input type="time" id="es-end"></div>
+      <div class="field" style="flex:1;"><label>From</label><select id="es-start"></select></div>
+      <div class="field" style="flex:1;"><label>To</label><select id="es-end"></select></div>
     </div>
     <div id="es-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
     <div class="modal-row">
@@ -1078,7 +1078,13 @@ function monOf(d) {
   const day = r.getDay(); r.setDate(r.getDate() - (day === 0 ? 6 : day - 1));
   return r;
 }
-function ds(d) { return d.toISOString().slice(0,10); }
+function ds(d) {
+  // Local-date YYYY-MM-DD (NOT toISOString, which converts to UTC and can shift the day)
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function weekDays(mon) { return Array.from({length:7},(_,i)=>{ const d=new Date(mon); d.setDate(d.getDate()+i); return d; }); }
 function fmt(d) { return `${DAY_L[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]} ${d.getFullYear()}`; }
 function shortFmt(d) { return `${d.getDate()} ${MON_S[d.getMonth()]}`; }
@@ -2067,8 +2073,8 @@ function applyPresetToEditForm() {
   const p = S.presets.find(x => x.id === document.getElementById('es-preset').value);
   if (!p) return;
   document.getElementById('es-label').value = p.label;
-  document.getElementById('es-start').value = p.start_time.slice(0,5);
-  document.getElementById('es-end').value = p.end_time.slice(0,5);
+  fillTimeSelect('es-start', p.start_time.slice(0,5));
+  fillTimeSelect('es-end', p.end_time.slice(0,5));
 }
 function openEditShift(shiftId, encName, dstr) {
   const found = findShiftById(shiftId);
@@ -2077,8 +2083,8 @@ function openEditShift(shiftId, encName, dstr) {
   editShiftCtx = { id: shiftId, name: decodeURIComponent(encName), dstr, dept: sh.department || staffDepartment(decodeURIComponent(encName)) };
   setEditShiftDept(editShiftCtx.dept);
   document.getElementById('es-label').value = sh.label || '';
-  document.getElementById('es-start').value = sh.start.slice(0,5);
-  document.getElementById('es-end').value = sh.end.slice(0,5);
+  fillTimeSelect('es-start', sh.start.slice(0,5));
+  fillTimeSelect('es-end', sh.end.slice(0,5));
   const pick = document.getElementById('es-preset');
   pick.innerHTML = '<option value="">— Custom —</option>' +
     S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
@@ -2283,8 +2289,8 @@ function openAddShift(dstr, presetName, deptHint) {
   const date = dstr || ds(S.mgrWeekStart);
   document.getElementById('shift-modal-title').textContent = 'Add Shift';
   document.getElementById('shift-date').value = date;
-  document.getElementById('shift-start').value = '09:00';
-  document.getElementById('shift-end').value = '13:00';
+  fillTimeSelect('shift-start', '09:00');
+  fillTimeSelect('shift-end', '13:00');
 
   // staff picker
   const allNames = [...new Set([...S.staffList.map(s=>s.name), ...Object.keys(S.staffAvail)])].sort();
@@ -2310,8 +2316,8 @@ function applyPresetToShiftForm() {
   const p = S.presets.find(x => x.id === id);
   if (!p) return;
   document.getElementById('shift-label').value  = p.label;
-  document.getElementById('shift-start').value  = p.start_time.slice(0,5);
-  document.getElementById('shift-end').value    = p.end_time.slice(0,5);
+  fillTimeSelect('shift-start', p.start_time.slice(0,5));
+  fillTimeSelect('shift-end', p.end_time.slice(0,5));
 }
 
 async function confirmShift() {
@@ -2573,8 +2579,8 @@ function openAddPreset() {
   S.editingPresetId = null;
   document.querySelector('#modal-preset .modal-title').textContent = 'New Preset';
   document.getElementById('preset-label').value = '';
-  document.getElementById('preset-start').value = '09:00';
-  document.getElementById('preset-end').value = '13:00';
+  fillTimeSelect('preset-start', '09:00');
+  fillTimeSelect('preset-end', '13:00');
   openModal('modal-preset');
 }
 
@@ -2584,8 +2590,8 @@ function openEditPreset(id) {
   S.editingPresetId = id;
   document.querySelector('#modal-preset .modal-title').textContent = 'Edit Preset';
   document.getElementById('preset-label').value = p.label;
-  document.getElementById('preset-start').value = p.start_time.slice(0,5);
-  document.getElementById('preset-end').value = p.end_time.slice(0,5);
+  fillTimeSelect('preset-start', p.start_time.slice(0,5));
+  fillTimeSelect('preset-end', p.end_time.slice(0,5));
   openModal('modal-preset');
 }
 
