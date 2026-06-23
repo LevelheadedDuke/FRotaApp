@@ -531,13 +531,17 @@
     <div class="t-title" id="setup-title">Join the team</div>
     <div class="t-sub" style="margin-top:6px;" id="setup-sub">Enter the code your manager gave you.</div>
   </div>
-  <div class="field">
+  <div class="field" id="field-name">
     <label>Your Name</label>
     <input type="text" id="setup-name" placeholder="e.g. Alex Johnson" autocomplete="name">
   </div>
   <div class="field" id="field-join-code">
     <label>Team Code</label>
     <input type="text" id="setup-join" placeholder="e.g. CROWN25" autocomplete="off" style="text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">
+  </div>
+  <div class="field" id="field-staff-code">
+    <label>Your 4-digit Code</label>
+    <input type="password" inputmode="numeric" id="setup-staff-code" placeholder="e.g. 4821" maxlength="4" style="letter-spacing:0.3em;font-weight:700;">
   </div>
   <div class="field" id="field-manager-pin" style="display:none;">
     <label>Manager PIN</label>
@@ -669,13 +673,14 @@
   <div class="scroll-body" id="mgr-tab-staff" style="display:none;">
     <div class="section-header">
       <div class="t-label">Team Members</div>
+      <button class="btn btn-primary btn-sm" onclick="openAddStaff()">+ Add Staff</button>
     </div>
     <div id="staff-list-mgr"></div>
     <div style="padding:0 14px 14px;">
       <div class="info-box">
         <strong style="color:var(--blue)">Team Code</strong><br>
         <span class="code-pill" id="mgr-team-code-display">—</span><br><br>
-        Share this with staff so they can join. It's also used to access this manager view.
+        Staff log in with the Team Code plus their own 4-digit code (shown on each person below).
       </div>
     </div>
   </div>
@@ -738,8 +743,8 @@
       </div>
     </div>
     <div id="time-row" style="display:flex;gap:12px;">
-      <div class="field" style="flex:1;"><label>From</label><input type="time" id="slot-start" value="09:00"></div>
-      <div class="field" style="flex:1;"><label>To</label><input type="time" id="slot-end" value="17:00"></div>
+      <div class="field" style="flex:1;"><label>From</label><select id="slot-start"></select></div>
+      <div class="field" style="flex:1;"><label>To</label><select id="slot-end"></select></div>
     </div>
     <div id="pattern-pick-row" class="field" style="display:none;">
       <label>Pattern (its shift times become your availability)</label>
@@ -957,6 +962,27 @@
   </div>
 </div>
 
+<!-- Add staff member (manager) -->
+<div class="modal-overlay" id="modal-addstaff">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Add Staff Member</div>
+    <div class="t-sub">A unique 4-digit login code is created automatically. Share it with them — they log in with the team code plus this code.</div>
+    <div class="field"><label>Name</label><input type="text" id="add-staff-name" placeholder="e.g. Sharon"></div>
+    <div class="field"><label>Department</label>
+      <select id="add-staff-dept">
+        <option value="foh">Front of House</option>
+        <option value="kitchen">Kitchen</option>
+      </select>
+    </div>
+    <div id="add-staff-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-addstaff')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmAddStaff()">Add</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ════════════════════════════════════════
@@ -1058,6 +1084,20 @@ function fmt(d) { return `${DAY_L[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth
 function shortFmt(d) { return `${d.getDate()} ${MON_S[d.getMonth()]}`; }
 function weekLabel(mon) { const d=weekDays(mon); return `${shortFmt(d[0])} – ${shortFmt(d[6])}`; }
 
+// Format a time string ("HH:MM" or "HH:MM:SS") as readable 12-hour, no seconds.
+// 10:00 -> "10am", 18:00 -> "6pm", 10:33 -> "10:33am", 12:00 -> "12pm", 00:00 -> "12am"
+function fmtTime(t) {
+  if (!t) return '';
+  const [hRaw, mRaw] = t.slice(0,5).split(':');
+  let h = parseInt(hRaw, 10);
+  const m = parseInt(mRaw, 10);
+  const ampm = h < 12 ? 'am' : 'pm';
+  let h12 = h % 12; if (h12 === 0) h12 = 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2,'0')}${ampm}`;
+}
+// Format a range "10:00"–"18:00" -> "10am–6pm"
+function fmtRange(start, end) { return `${fmtTime(start)}–${fmtTime(end)}`; }
+
 /* ════════════════════════════════════════
    UI HELPERS
 ═════════════════════════════════════════ */
@@ -1094,7 +1134,7 @@ async function showSetup(mode) {
   err('setup-error','');
 
   // Clear any previously entered values so nothing carries over between logins
-  ['setup-name','setup-join','setup-manager-pin','setup-team','setup-new-code','setup-new-pin']
+  ['setup-name','setup-join','setup-staff-code','setup-manager-pin','setup-team','setup-new-code','setup-new-pin']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
   if (mode === 'manager') {
@@ -1111,6 +1151,8 @@ async function showSetup(mode) {
   const isManagerLogin  = mode === 'manager' && managerFlow === 'login';
   const isManagerCreate = mode === 'manager' && managerFlow === 'create';
 
+  document.getElementById('field-name').style.display          = mode === 'staff' ? 'none' : 'flex';
+  document.getElementById('field-staff-code').style.display    = mode === 'staff' ? 'flex' : 'none';
   document.getElementById('field-join-code').style.display     = (mode === 'staff' || isManagerLogin) ? 'flex' : 'none';
   document.getElementById('field-manager-pin').style.display   = isManagerLogin ? 'flex' : 'none';
   document.getElementById('field-team-setup').style.display    = isManagerCreate ? 'flex' : 'none';
@@ -1126,9 +1168,9 @@ async function showSetup(mode) {
     document.getElementById('setup-sub').textContent   = 'Enter your team code and manager PIN.';
     document.getElementById('setup-btn').textContent   = 'Log In';
   } else {
-    document.getElementById('setup-title').textContent = 'Join your team';
-    document.getElementById('setup-sub').textContent   = 'Enter the code your manager gave you.';
-    document.getElementById('setup-btn').textContent   = 'Join Team';
+    document.getElementById('setup-title').textContent = 'Staff login';
+    document.getElementById('setup-sub').textContent   = 'Enter the team code and your personal 4-digit code.';
+    document.getElementById('setup-btn').textContent   = 'Log In';
   }
   showScreen('screen-setup');
 }
@@ -1139,7 +1181,10 @@ function randCode() {
 
 async function confirmSetup() {
   const name = document.getElementById('setup-name').value.trim();
-  if (!name) { err('setup-error','Please enter your name'); return; }
+  // Name only required when a manager is creating the team
+  if (setupMode === 'manager' && managerFlow === 'create' && !name) {
+    err('setup-error','Please enter your name'); return;
+  }
 
   const isManagerLogin = setupMode === 'manager' && managerFlow === 'login';
   setLoading(true, setupMode === 'manager' ? (isManagerLogin ? 'Logging in…' : 'Creating team…') : 'Joining team…');
@@ -1184,21 +1229,22 @@ async function confirmSetup() {
       await initManager();
 
     } else {
+      // STAFF LOGIN BY CODE: team code + personal 4-digit code
       const code = document.getElementById('setup-join').value.trim().toUpperCase();
+      const staffCode = document.getElementById('setup-staff-code').value.trim();
       if (!code) { err('setup-error','Please enter your team code'); setLoading(false); return; }
+      if (!staffCode || staffCode.length !== 4) { err('setup-error','Enter your 4-digit code'); setLoading(false); return; }
 
       const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
       if (!res.ok || !res.data?.length) { err('setup-error','Team code not found — check with your manager'); setLoading(false); return; }
-
       const team = res.data[0];
 
-      // Register staff member
-      // register staff member without clobbering their saved department
-      const existing = await sb.from('staff_members').select('id', `team_id=eq.${team.id}&name=eq.${encodeURIComponent(name)}`);
-      if (!existing.ok || !existing.data?.length) {
-        await sb.from('staff_members').insert({ team_id: team.id, name: name, department: 'foh' });
-      }
-      S.mode = 'staff'; S.name = name; S.teamId = team.id;
+      // Look up the staff member whose code matches
+      const sm = await sb.from('staff_members').select('*', `team_id=eq.${team.id}&staff_code=eq.${staffCode}`);
+      if (!sm.ok || !sm.data?.length) { err('setup-error','That code is not recognised for this team'); setLoading(false); return; }
+      const member = sm.data[0];
+
+      S.mode = 'staff'; S.name = member.name; S.teamId = team.id;
       S.teamCode = code; S.teamName = team.team_name;
       persist();
       await initStaff();
@@ -1328,7 +1374,7 @@ function renderDayPanel() {
   avail.slots.forEach((sl, i) => {
     const div = document.createElement('div');
     div.className = 'slot-item avail';
-    div.innerHTML = `<div><div class="slot-time">${sl.start} – ${sl.end}</div><div class="slot-type avail">✅ Available${sl.note ? ' · '+sl.note : ''}</div></div>
+    div.innerHTML = `<div><div class="slot-time">${fmtRange(sl.start, sl.end)}</div><div class="slot-type avail">✅ Available${sl.note ? ' · '+sl.note : ''}</div></div>
       <button class="btn btn-sm btn-danger" onclick="deleteSlot('${dstr}',${i})">Remove</button>`;
     list.appendChild(div);
   });
@@ -1337,13 +1383,28 @@ function renderDayPanel() {
 /* ── Slot CRUD ── */
 let availMode = 'times';   // 'times' | 'pattern'
 
+// Build 15-minute time options (00:00 .. 23:45) with am/pm labels
+function timeOptionsHtml(selected) {
+  let out = '';
+  for (let mins = 0; mins < 24*60; mins += 15) {
+    const h = String(Math.floor(mins/60)).padStart(2,'0');
+    const m = String(mins%60).padStart(2,'0');
+    const val = `${h}:${m}`;
+    out += `<option value="${val}" ${val===selected?'selected':''}>${fmtTime(val)}</option>`;
+  }
+  return out;
+}
+function fillTimeSelect(id, selected) {
+  document.getElementById(id).innerHTML = timeOptionsHtml(selected);
+}
+
 function openAddSlot() {
   S.slotType = 'available';
   document.getElementById('type-avail').className   = 'type-opt sel-avail';
   document.getElementById('type-holiday').className = 'type-opt';
   document.getElementById('slot-note').value  = '';
-  document.getElementById('slot-start').value = '09:00';
-  document.getElementById('slot-end').value   = '17:00';
+  fillTimeSelect('slot-start', '09:00');
+  fillTimeSelect('slot-end', '17:00');
   // populate pattern dropdown (staff can pick a manager-made pattern)
   const pick = document.getElementById('slot-pattern');
   pick.innerHTML = '<option value="">— choose —</option>' +
@@ -1383,7 +1444,7 @@ function renderSlotPatternPreview() {
   const el = document.getElementById('slot-pattern-preview');
   if (!pat) { el.textContent = ''; return; }
   if (!pat.shifts.length) { el.textContent = 'This pattern has no shifts.'; return; }
-  el.textContent = 'Adds: ' + pat.shifts.map(s => `${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}`).join(', ');
+  el.textContent = 'Adds: ' + pat.shifts.map(s => fmtRange(s.start_time, s.end_time)).join(', ');
 }
 
 async function confirmSlot() {
@@ -1483,7 +1544,7 @@ async function loadMyShifts() {
         <div class="shift-mon">${MON_S[d.getMonth()]}</div>
       </div>
       <div>
-        <div class="shift-times">${r.label ? r.label+' · ' : ''}${(r.start_time||'').slice(0,5)} – ${(r.end_time||'').slice(0,5)}</div>
+        <div class="shift-times">${r.label ? r.label+' · ' : ''}${fmtRange(r.start_time||'', r.end_time||'')}</div>
         <div class="shift-status"><span class="badge badge-green">Confirmed</span></div>
       </div>
     </div>`;
@@ -1624,7 +1685,7 @@ function renderMgrOverview() {
       const avail = S.staffAvail[name]?.[dstr];
       if (!avail || (!avail.slots?.length && !avail.holiday)) return '<td class="cell-empty">—</td>';
       if (avail.holiday) return '<td class="cell-holiday">🏖 Off</td>';
-      const times = avail.slots.map(s => `${s.start}–${s.end}`).join('<br>');
+      const times = avail.slots.map(s => fmtRange(s.start, s.end)).join('<br>');
       return `<td class="cell-avail">✅ ${times}</td>`;
     }).join('');
     return `<tr><td style="font-weight:700;white-space:nowrap;">${name}</td>${cells}</tr>`;
@@ -1635,8 +1696,9 @@ function renderMgrOverview() {
 function timeOverlapsAvail(name, dstr, start, end) {
   const av = S.staffAvail[name]?.[dstr];
   if (!av || av.holiday) return false;
-  // staff is eligible if any availability slot fully contains the shift window
-  return av.slots?.some(s => s.type === 'available' && s.start <= start && s.end >= end);
+  // Compare by minutes (not raw strings) so "10:00:00" vs "10:00" matches correctly.
+  const s0 = toMins(start), e0 = toMins(end);
+  return av.slots?.some(s => s.type === 'available' && toMins(s.start) <= s0 && toMins(s.end) >= e0);
 }
 
 /* ── PATTERN DRAG/TAP HELPERS ── */
@@ -1712,13 +1774,13 @@ function patternClashReason(pat, name, dstr) {
   // 1) any pattern shift vs the person's existing shifts that day
   for (const p of proposed) {
     const c = findClash(name, dstr, p.start, p.end);
-    if (c) return `would clash with ${c.label || 'an existing shift'} ${c.start.slice(0,5)}–${c.end.slice(0,5)}`;
+    if (c) return `would clash with ${c.label || 'an existing shift'} ${fmtRange(c.start, c.end)}`;
   }
   // 2) pattern shifts overlapping each other
   for (let i = 0; i < proposed.length; i++) {
     for (let j = i+1; j < proposed.length; j++) {
       if (rangesOverlap(proposed[i].start, proposed[i].end, proposed[j].start, proposed[j].end)) {
-        return `has overlapping shifts within itself (${proposed[i].start.slice(0,5)}–${proposed[i].end.slice(0,5)} and ${proposed[j].start.slice(0,5)}–${proposed[j].end.slice(0,5)})`;
+        return `has overlapping shifts within itself (${fmtRange(proposed[i].start, proposed[i].end)} and ${fmtRange(proposed[j].start, proposed[j].end)})`;
       }
     }
   }
@@ -1932,7 +1994,7 @@ function renderShifts() {
             const lbl = sh.label || (dept.key==='kitchen'?'Kitchen':'Front of House');
             return `<div class="cell-shift ${dept.cls}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
               <span class="cs-label">${lbl}</span>
-              <span class="cs-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</span></div>`;
+              <span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`;
           }).join('');
           const clashBadge = clash ? `<div class="cell-clash" title="This person has overlapping shifts today (across departments)">⚠ Overlap</div>` : '';
           content = `${clashBadge}${blocks}<div class="cell-more" onclick="event.stopPropagation(); openDayMenu('${enc}','${dstr}')">+ add</div>`;
@@ -2019,7 +2081,7 @@ function openEditShift(shiftId, encName, dstr) {
   document.getElementById('es-end').value = sh.end.slice(0,5);
   const pick = document.getElementById('es-preset');
   pick.innerHTML = '<option value="">— Custom —</option>' +
-    S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+    S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
   err('es-error','');
   openModal('modal-editshift');
 }
@@ -2032,7 +2094,7 @@ async function confirmEditShift() {
   // HARD BLOCK: edited times must not overlap this person's other shifts that day
   const clash = findClash(editShiftCtx.name, editShiftCtx.dstr, start, end, editShiftCtx.id);
   if (clash) {
-    err('es-error', `${editShiftCtx.name} already has ${clash.label || 'a shift'} ${clash.start.slice(0,5)}–${clash.end.slice(0,5)} that day. Shifts can't overlap.`);
+    err('es-error', `${editShiftCtx.name} already has ${clash.label || 'a shift'} ${fmtRange(clash.start, clash.end)} that day. Shifts can't overlap.`);
     return;
   }
 
@@ -2082,7 +2144,7 @@ function renderPatGroupList() {
   const list = document.getElementById('patgroup-list');
   if (!shifts.length) { list.innerHTML = '<div style="font-size:0.82rem;color:var(--muted);">No shifts left in this pattern.</div>'; return; }
   list.innerHTML = shifts.map(sh => `<div class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;">
-      <div class="rota-time">${sh.start.slice(0,5)}–${sh.end.slice(0,5)}</div>
+      <div class="rota-time">${fmtRange(sh.start, sh.end)}</div>
       <div style="flex:1;font-size:0.82rem;">${sh.label || 'Shift'}</div>
       <button class="btn btn-ghost btn-sm" onclick="editGroupShift('${sh.id}')">Edit</button>
       <button class="btn btn-danger btn-sm" onclick="removeGroupShift('${sh.id}')">✕</button>
@@ -2135,7 +2197,7 @@ function renderPatternPickShifts() {
   if (!pat.shifts.length) { list.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">This pattern has no shifts.</div>'; return; }
   list.innerHTML = pat.shifts.map((s,i) => `<label class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;cursor:pointer;">
       <input type="checkbox" class="pp-check" data-i="${i}" checked style="width:auto;">
-      <div class="rota-time">${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}</div>
+      <div class="rota-time">${fmtRange(s.start_time, s.end_time)}</div>
       <div style="flex:1;font-size:0.82rem;">${s.label||'Shift'}</div>
     </label>`).join('');
 }
@@ -2151,12 +2213,12 @@ async function confirmPatternPick() {
   const chosen = checks.map(i => ({ start: pat.shifts[i].start_time, end: pat.shifts[i].end_time, label: pat.shifts[i].label }));
   for (const c of chosen) {
     const ex = findClash(name, dstr, c.start, c.end);
-    if (ex) { err('pp-error', `${c.label||'A shift'} ${c.start.slice(0,5)}–${c.end.slice(0,5)} clashes with ${ex.label||'an existing shift'} ${ex.start.slice(0,5)}–${ex.end.slice(0,5)}.`); return; }
+    if (ex) { err('pp-error', `${c.label||'A shift'} ${fmtRange(c.start, c.end)} clashes with ${ex.label||'an existing shift'} ${fmtRange(ex.start, ex.end)}.`); return; }
   }
   for (let a = 0; a < chosen.length; a++) {
     for (let b = a+1; b < chosen.length; b++) {
       if (rangesOverlap(chosen[a].start, chosen[a].end, chosen[b].start, chosen[b].end)) {
-        err('pp-error', `Selected shifts overlap each other (${chosen[a].start.slice(0,5)}–${chosen[a].end.slice(0,5)} and ${chosen[b].start.slice(0,5)}–${chosen[b].end.slice(0,5)}).`);
+        err('pp-error', `Selected shifts overlap each other (${fmtRange(chosen[a].start, chosen[a].end)} and ${fmtRange(chosen[b].start, chosen[b].end)}).`);
         return;
       }
     }
@@ -2237,7 +2299,7 @@ function openAddShift(dstr, presetName, deptHint) {
   // preset dropdown
   const pick = document.getElementById('shift-preset-pick');
   pick.innerHTML = '<option value="">— Custom —</option>' +
-    S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+    S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
 
   err('shift-modal-error','');
   openModal('modal-shift');
@@ -2264,7 +2326,7 @@ async function confirmShift() {
   // HARD BLOCK: a person cannot work two overlapping shifts on the same day
   const clash = findClash(name, date, start, end);
   if (clash) {
-    err('shift-modal-error', `${name} already has ${clash.label || 'a shift'} ${clash.start.slice(0,5)}–${clash.end.slice(0,5)} that day. Shifts can't overlap.`);
+    err('shift-modal-error', `${name} already has ${clash.label || 'a shift'} ${fmtRange(clash.start, clash.end)} that day. Shifts can't overlap.`);
     return;
   }
 
@@ -2379,7 +2441,7 @@ async function gatherRota(weekStarts) {
       const rows = deptNames.map(name => {
         const cells = days.map(d => {
           const list = (byDate[ds(d)]||[]).filter(sh => sh.department===dept.key && sh.assigned.includes(name));
-          return list.map(sh => `${sh.label?sh.label+' ':''}${sh.start.slice(0,5)}-${sh.end.slice(0,5)}`).join(' / ');
+          return list.map(sh => `${sh.label?sh.label+' ':''}${fmtRange(sh.start, sh.end)}`).join(' / ');
         });
         // weekly hours for this dept
         let mins = 0;
@@ -2499,7 +2561,7 @@ function renderPresets() {
   }
   c.innerHTML = S.presets.map(p => `<div class="staff-card">
       <div style="flex:1;"><div class="staff-name">${p.label}</div>
-      <div class="staff-meta">${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}</div></div>
+      <div class="staff-meta">${fmtRange(p.start_time, p.end_time)}</div></div>
       <div class="staff-right" style="display:flex;gap:6px;">
         <button class="btn btn-ghost btn-sm" onclick="openEditPreset('${p.id}')">Edit</button>
         <button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button>
@@ -2571,7 +2633,7 @@ function renderPatterns() {
     return;
   }
   c.innerHTML = S.patterns.map(p => {
-    const shiftSummary = p.shifts.map(s => `${s.label||'Shift'} ${s.start_time.slice(0,5)}–${s.end_time.slice(0,5)}`).join(' · ') || 'No shifts';
+    const shiftSummary = p.shifts.map(s => `${s.label||'Shift'} ${fmtRange(s.start_time, s.end_time)}`).join(' · ') || 'No shifts';
     return `<div class="staff-card">
       <div style="flex:1;"><div class="staff-name">${p.label}</div>
       <div class="staff-meta">${shiftSummary}</div></div>
@@ -2590,7 +2652,7 @@ function openAddPattern() {
   renderPatternBuild();
   const pick = document.getElementById('pattern-preset-pick');
   pick.innerHTML = '<option value="">— choose preset —</option>' +
-    S.presets.map(p => `<option value="${p.id}">${p.label} (${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)})</option>`).join('');
+    S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
   openModal('modal-pattern');
 }
 
@@ -2605,7 +2667,7 @@ function openEditPattern(id) {
   renderPatternBuild();
   const pick = document.getElementById('pattern-preset-pick');
   pick.innerHTML = '<option value="">— choose preset —</option>' +
-    S.presets.map(pr => `<option value="${pr.id}">${pr.label} (${pr.start_time.slice(0,5)}–${pr.end_time.slice(0,5)})</option>`).join('');
+    S.presets.map(pr => `<option value="${pr.id}">${pr.label} (${fmtRange(pr.start_time, pr.end_time)})</option>`).join('');
   openModal('modal-pattern');
 }
 
@@ -2613,7 +2675,7 @@ function renderPatternBuild() {
   const c = document.getElementById('pattern-build-list');
   if (!S.patternBuild.length) { c.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">No shifts added yet.</div>'; return; }
   c.innerHTML = S.patternBuild.map((s,i) => `<div class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;">
-      <div class="rota-time">${s.start.slice(0,5)}–${s.end.slice(0,5)}</div>
+      <div class="rota-time">${fmtRange(s.start, s.end)}</div>
       <div style="flex:1;font-size:0.82rem;">${s.label||'Shift'}</div>
       <button class="btn btn-danger btn-sm" onclick="removePatternBuild(${i})">✕</button>
     </div>`).join('');
@@ -2727,31 +2789,103 @@ async function confirmApplyPattern() {
 }
 
 /* ── Staff list (manager) ── */
+function staffCodeFor(name) {
+  const rec = S.staffList.find(s => s.name === name);
+  return rec && rec.staff_code ? rec.staff_code : null;
+}
+
 function renderStaffListMgr() {
   const names = [...new Set([...Object.keys(S.staffAvail), ...S.staffList.map(s=>s.name)])].sort();
   const container = document.getElementById('staff-list-mgr');
   if (!names.length) {
-    container.innerHTML = '<div class="empty-state"><div class="ei">👥</div><div>No staff yet.</div><div class="et">Share your team code for staff to join.</div></div>';
+    container.innerHTML = '<div class="empty-state"><div class="ei">👥</div><div>No staff yet.</div><div class="et">Tap “+ Add Staff” to create your first team member.</div></div>';
     return;
   }
   container.innerHTML = names.map(name => {
     const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
     const days = Object.keys(S.staffAvail[name]||{}).length;
     const dept = staffDepartment(name);
-    return `<div class="staff-card">
+    const code = staffCodeFor(name);
+    const codeHtml = code
+      ? `<span class="code-pill" style="font-size:0.95rem;padding:4px 10px;">${code}</span>`
+      : `<button class="btn btn-ghost btn-sm" onclick="generateStaffCode('${encodeURIComponent(name)}')">Generate code</button>`;
+    return `<div class="staff-card" style="flex-wrap:wrap;">
       <div class="staff-avatar">${initials}</div>
-      <div style="flex:1;">
+      <div style="flex:1;min-width:120px;">
         <div class="staff-name">${name}</div>
-        <div class="staff-meta">${days} day${days!==1?'s':''} with availability</div>
+        <div class="staff-meta">Login code: ${code ? code : '— none yet —'} · ${days} day${days!==1?'s':''} avail.</div>
       </div>
-      <div class="staff-right">
-        <select class="rota-select" style="min-width:120px;" onchange="setStaffDept('${encodeURIComponent(name)}', this.value)">
+      <div class="staff-right" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        ${codeHtml}
+        <select class="rota-select" style="min-width:110px;" onchange="setStaffDept('${encodeURIComponent(name)}', this.value)">
           <option value="kitchen" ${dept==='kitchen'?'selected':''}>Kitchen</option>
           <option value="foh" ${dept==='foh'?'selected':''}>Front of House</option>
         </select>
+        <button class="btn btn-danger btn-sm" onclick="deleteStaffMember('${encodeURIComponent(name)}')">✕</button>
       </div>
     </div>`;
   }).join('');
+}
+
+// Generate a 4-digit code unique within this team
+function newStaffCode() {
+  const used = new Set(S.staffList.map(s => s.staff_code).filter(Boolean));
+  let code;
+  let guard = 0;
+  do { code = String(Math.floor(1000 + Math.random()*9000)); guard++; }
+  while (used.has(code) && guard < 10000);
+  return code;
+}
+
+async function generateStaffCode(encName) {
+  const name = decodeURIComponent(encName);
+  const code = newStaffCode();
+  const res = await sb.from('staff_members').update({ staff_code: code }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  if (!res.ok) { toast('Could not save code'); return; }
+  const rec = S.staffList.find(s => s.name === name);
+  if (rec) rec.staff_code = code; else S.staffList.push({ name, staff_code: code, department: 'foh' });
+  renderStaffListMgr();
+  toast(`${name}'s code: ${code}`);
+}
+
+/* ── Add a new staff member (manager creates name + code) ── */
+function openAddStaff() {
+  document.getElementById('add-staff-name').value = '';
+  document.getElementById('add-staff-dept').value = 'foh';
+  err('add-staff-error','');
+  openModal('modal-addstaff');
+}
+
+async function confirmAddStaff() {
+  const name = document.getElementById('add-staff-name').value.trim();
+  const dept = document.getElementById('add-staff-dept').value;
+  if (!name) { err('add-staff-error','Enter a name'); return; }
+  // allow duplicate display names (that's the whole point of codes), but each gets a unique code
+  const code = newStaffCode();
+  const res = await sb.from('staff_members').insert({ team_id: S.teamId, name, department: dept, staff_code: code });
+  if (!res.ok || !res.data?.[0]) { err('add-staff-error','Could not add staff member'); return; }
+  S.staffList.push({ name, department: dept, staff_code: code, id: res.data[0].id });
+  closeModal('modal-addstaff');
+  renderStaffListMgr();
+  toast(`${name} added · code ${code}`);
+}
+
+async function deleteStaffMember(encName) {
+  const name = decodeURIComponent(encName);
+  if (!confirm(`Remove ${name}? This deletes their availability and unassigns their shifts.`)) return;
+  setLoading(true, 'Removing…');
+  // remove their availability, assignments, and staff record
+  await sb.from('availability').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
+  await sb.from('shift_assignments').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
+  await sb.from('staff_members').delete(`team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  S.staffList = S.staffList.filter(s => s.name !== name);
+  delete S.staffAvail[name];
+  await fetchAllAvail();
+  setLoading(false);
+  renderStaffListMgr();
+  renderMgrOverview();
+  renderShifts();
+  toast(`${name} removed`);
 }
 
 async function setStaffDept(encName, dept) {
@@ -2809,7 +2943,7 @@ function doLogout() {
   sessionStorage.removeItem('rota_session');
   Object.assign(S, { mode:null, name:'', teamId:null, teamCode:'', teamName:'', managerPin:'' });
   // Wipe all setup fields so no name/PIN/code lingers for the next person
-  ['setup-name','setup-join','setup-manager-pin','setup-team','setup-new-code','setup-new-pin']
+  ['setup-name','setup-join','setup-staff-code','setup-manager-pin','setup-team','setup-new-code','setup-new-pin']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   closeModal('modal-logout');
   showScreen('screen-splash');
