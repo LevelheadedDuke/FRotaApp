@@ -226,6 +226,20 @@
     table.ov tr:last-child td { border-bottom: none; }
     table.ov tr:hover td { background: var(--night-3); }
     .cell-avail   { color: var(--green); font-weight: 700; }
+    /* Blocked days + time-off requests */
+    .ov-dayhead { cursor: pointer; transition: background 0.12s; }
+    .ov-dayhead.is-blocked { background: rgba(255,92,92,0.16); color: #ff9d9d; }
+    .ov-lock { font-size: 0.6rem; font-weight: 800; }
+    td.on-blocked { box-shadow: inset 0 0 0 1px rgba(255,92,92,0.25); }
+    .cell-request { background: rgba(245,166,35,0.12); padding: 4px !important; vertical-align: top; }
+    .req-tag { font-size: 0.66rem; font-weight: 800; color: var(--amber); margin-bottom: 3px; white-space: nowrap; }
+    .req-reason { font-size: 0.62rem; color: var(--muted); margin-bottom: 4px; }
+    .req-actions { display: flex; gap: 3px; flex-wrap: wrap; }
+    .btn-xs { padding: 3px 7px; font-size: 0.64rem; border-radius: 6px; }
+    #requests-banner { margin: 8px 14px 0; padding: 10px 12px; border-radius: 8px;
+      background: rgba(245,166,35,0.12); border: 1px solid rgba(245,166,35,0.3); }
+    .req-banner-head { font-size: 0.82rem; font-weight: 800; color: var(--amber); }
+    .req-banner-sub  { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
     .ov td.cell-avail, .ov td.cell-holiday { white-space: normal; min-width: 92px; }
     .nowrap { white-space: nowrap; display: inline-block; }
     .cell-holiday { color: var(--amber); font-weight: 700; }
@@ -334,6 +348,7 @@
     .badge-blue  { background: var(--blue-dim); color: var(--blue); }
     .badge-green { background: var(--green-dim); color: var(--green); }
     .badge-amber { background: var(--amber-dim); color: var(--amber); }
+    .badge-red { background: var(--red-dim); color: #ff9d9d; }
     .divider { height: 1px; background: var(--rim); margin: 4px 0; }
     .spin { animation: spin 0.8s linear infinite; display: inline-block; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -654,6 +669,8 @@
   </div>
 
   <div class="scroll-body" id="mgr-tab-overview">
+    <div id="requests-banner" style="display:none;"></div>
+    <div style="padding:4px 14px 0;font-size:0.72rem;color:var(--muted);">Tap a day header to block/unblock time off.</div>
     <div class="ov-wrap">
       <table class="ov" id="ov-table">
         <thead><tr id="ov-head"><th>Staff</th></tr></thead>
@@ -988,6 +1005,22 @@
   </div>
 </div>
 
+<!-- Staff: request a day off (blocked day) -->
+<div class="modal-overlay" id="modal-request">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Request Day Off</div>
+    <div class="t-sub">This day is blocked, so your manager needs to approve time off.</div>
+    <div class="field"><label>Day</label><div id="req-day-label" style="font-weight:700;">—</div></div>
+    <div class="field"><label>Reason (optional)</label><input type="text" id="req-reason" placeholder="e.g. Family event"></div>
+    <div id="req-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-request')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmRequestDayOff()">Send Request</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ════════════════════════════════════════
@@ -1040,6 +1073,8 @@ const S = {
   staffAvail: {},       // { staffName: { 'YYYY-MM-DD': { slots, holiday } } }
   rota: {},             // { 'YYYY-MM-DD': [ { slot_idx, staff_name, start, end } ] }
   staffList: [],        // [ { name } ]
+  blockedDays: {},      // { 'YYYY-MM-DD': true }
+  timeOffRequests: [],  // [ { id, staff_name, date, reason, status } ]
   presets: [],          // shift presets
   patterns: [],         // [ { id, label, shifts:[...] } ]
   shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
@@ -1327,6 +1362,8 @@ async function initStaff() {
 
   await fetchMyAvail();
   await fetchPatternsForStaff();
+  await fetchBlockedDays();
+  await fetchMyRequests();
   renderStaffWeekStrip();
   renderDayPanel();
   setLoading(false);
@@ -1343,6 +1380,11 @@ async function fetchPatternsForStaff() {
       S.patterns.push({ id: pat.id, label: pat.label, shifts: (ps.ok && ps.data) ? ps.data : [] });
     }
   }
+}
+
+async function fetchMyRequests() {
+  const res = await sb.from('time_off_requests').select('*', `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}`);
+  S.timeOffRequests = (res.ok && res.data) ? res.data : [];
 }
 
 async function fetchMyAvail() {
@@ -1408,16 +1450,44 @@ function renderDayPanel() {
 
   const holBtn = document.getElementById('hol-btn');
   const badge  = document.getElementById('panel-badge');
+  const isBlocked = !!S.blockedDays[dstr];
+  const myReq = S.timeOffRequests.find(r => r.staff_name === S.name && r.date === dstr);
 
   if (avail.holiday) {
+    // Already off (either self-marked, or an approved request)
     holBtn.textContent = '✕ Remove Day Off';
     holBtn.style.color = 'var(--red)';
     holBtn.style.borderColor = 'rgba(255,92,92,0.3)';
+    holBtn.onclick = toggleHoliday;
+    holBtn.style.display = isBlocked ? 'none' : 'block'; // can't self-remove an approved blocked day off
     badge.innerHTML = '<span class="badge badge-amber">🏖 Day Off</span>';
+  } else if (isBlocked) {
+    // Blocked day → request workflow
+    if (myReq && myReq.status === 'pending') {
+      holBtn.textContent = '⏳ Request pending — tap to withdraw';
+      holBtn.style.color = 'var(--amber)';
+      holBtn.style.borderColor = 'rgba(245,166,35,0.3)';
+      holBtn.onclick = withdrawRequest;
+      badge.innerHTML = '<span class="badge badge-amber">⏳ Requested</span>';
+    } else if (myReq && myReq.status === 'denied') {
+      holBtn.textContent = '🔒 Request denied — tap to request again';
+      holBtn.style.color = 'var(--red)';
+      holBtn.style.borderColor = 'rgba(255,92,92,0.3)';
+      holBtn.onclick = openRequestDayOff;
+      badge.innerHTML = '<span class="badge badge-red">🔒 Blocked · denied</span>';
+    } else {
+      holBtn.textContent = '🔒 Blocked — Request Day Off';
+      holBtn.style.color = 'var(--amber)';
+      holBtn.style.borderColor = 'rgba(245,166,35,0.3)';
+      holBtn.onclick = openRequestDayOff;
+      badge.innerHTML = '<span class="badge badge-red">🔒 Blocked</span>';
+    }
   } else {
     holBtn.textContent = '🏖 Mark as Day Off / Holiday';
     holBtn.style.color = 'var(--amber)';
     holBtn.style.borderColor = 'rgba(245,166,35,0.3)';
+    holBtn.onclick = toggleHoliday;
+    holBtn.style.display = 'block';
     badge.innerHTML = '';
   }
 
@@ -1585,6 +1655,47 @@ async function toggleHoliday() {
   renderDayPanel();
 }
 
+/* ── Time-off requests (staff side) ── */
+function openRequestDayOff() {
+  const dstr = S.selectedDate;
+  const d = new Date(dstr + 'T12:00:00');
+  document.getElementById('req-day-label').textContent = `${DAY_L[d.getDay()]} ${fmt(d)}`;
+  document.getElementById('req-reason').value = '';
+  err('req-error','');
+  openModal('modal-request');
+}
+
+async function confirmRequestDayOff() {
+  const dstr = S.selectedDate;
+  const reason = document.getElementById('req-reason').value.trim();
+  // If a denied request exists, remove it first so we file a fresh pending one
+  const existing = S.timeOffRequests.find(r => r.staff_name === S.name && r.date === dstr);
+  if (existing) {
+    await sb.from('time_off_requests').delete(`id=eq.${existing.id}`);
+    S.timeOffRequests = S.timeOffRequests.filter(r => r.id !== existing.id);
+  }
+  const res = await sb.from('time_off_requests').insert({
+    team_id: S.teamId, staff_name: S.name, date: dstr, reason: reason || null, status: 'pending'
+  });
+  if (res.ok && res.data?.[0]) S.timeOffRequests.push(res.data[0]);
+  closeModal('modal-request');
+  renderStaffWeekStrip();
+  renderDayPanel();
+  toast('Request sent to your manager');
+}
+
+async function withdrawRequest() {
+  const dstr = S.selectedDate;
+  const req = S.timeOffRequests.find(r => r.staff_name === S.name && r.date === dstr && r.status === 'pending');
+  if (!req) return;
+  if (!confirm('Withdraw your day-off request?')) return;
+  await sb.from('time_off_requests').delete(`id=eq.${req.id}`);
+  S.timeOffRequests = S.timeOffRequests.filter(r => r.id !== req.id);
+  renderStaffWeekStrip();
+  renderDayPanel();
+  toast('Request withdrawn');
+}
+
 /* ── Team Rota tab (read-only, staff view) ── */
 let staffRotaWeekStart = null;
 let staffRotaData = { shifts: {}, staffList: [] };
@@ -1733,11 +1844,24 @@ async function initManager() {
   if (pinField) pinField.style.display = S.isSupervisor ? 'none' : 'flex';
 
   await fetchAllAvail();
+  await fetchBlockedDays();
+  await fetchTimeOffRequests();
   renderMgrOverview();
   renderShifts();
   setLoading(false);
   showScreen('screen-manager');
   startMgrPolling();
+}
+
+async function fetchBlockedDays() {
+  const res = await sb.from('blocked_days').select('*', `team_id=eq.${S.teamId}`);
+  S.blockedDays = {};
+  if (res.ok && res.data) res.data.forEach(r => { S.blockedDays[r.date] = true; });
+}
+
+async function fetchTimeOffRequests() {
+  const res = await sb.from('time_off_requests').select('*', `team_id=eq.${S.teamId}&order=created_at.asc`);
+  S.timeOffRequests = (res.ok && res.data) ? res.data : [];
 }
 
 async function fetchAllAvail() {
@@ -1804,6 +1928,8 @@ async function fetchAllAvail() {
 function startMgrPolling() {
   S.realtimeSub = setInterval(async () => {
     await fetchAllAvail();
+    await fetchBlockedDays();
+    await fetchTimeOffRequests();
     if (S.mgrTab === 'overview') renderMgrOverview();
     if (S.mgrTab === 'rota')     renderShifts();
     if (S.mgrTab === 'staff')    renderStaffListMgr();
@@ -1822,10 +1948,20 @@ function renderMgrOverview() {
   const days = weekDays(S.mgrWeekStart);
   document.getElementById('mgr-week-label').textContent = weekLabel(S.mgrWeekStart);
 
+  // Pending time-off requests banner (for the whole team)
+  renderRequestsBanner();
+
   const names = Object.keys(S.staffAvail).sort();
   const head  = document.getElementById('ov-head');
   const body  = document.getElementById('ov-body');
-  head.innerHTML = '<th>Staff</th>' + days.map(d => `<th>${DAY_S[d.getDay()]} ${d.getDate()}</th>`).join('');
+
+  // Day headers double as block/unblock toggles
+  head.innerHTML = '<th>Staff</th>' + days.map(d => {
+    const dstr = ds(d);
+    const blocked = S.blockedDays[dstr];
+    return `<th class="ov-dayhead ${blocked?'is-blocked':''}" onclick="toggleBlockedDay('${dstr}')" title="${blocked?'Blocked — tap to unblock':'Tap to block time off'}">
+      ${DAY_S[d.getDay()]} ${d.getDate()}${blocked?'<br><span class="ov-lock">🔒 Blocked</span>':''}</th>`;
+  }).join('');
 
   if (!names.length) {
     body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px;">No staff availability yet — share your team code with staff to get started.</td></tr>';
@@ -1836,13 +1972,68 @@ function renderMgrOverview() {
     const cells = days.map(d => {
       const dstr  = ds(d);
       const avail = S.staffAvail[name]?.[dstr];
-      if (!avail || (!avail.slots?.length && !avail.holiday)) return '<td class="cell-empty">—</td>';
-      if (avail.holiday) return '<td class="cell-holiday">🏖 Off</td>';
+      // pending request for this person/day?
+      const req = S.timeOffRequests.find(r => r.staff_name === name && r.date === dstr && r.status === 'pending');
+      if (req) {
+        return `<td class="cell-request">
+          <div class="req-tag">⏳ Requested off</div>
+          ${req.reason ? `<div class="req-reason">${req.reason}</div>` : ''}
+          <div class="req-actions">
+            <button class="btn btn-green btn-xs" onclick="decideRequest('${req.id}','approved')">Approve</button>
+            <button class="btn btn-danger btn-xs" onclick="decideRequest('${req.id}','denied')">Deny</button>
+          </div></td>`;
+      }
+      if (!avail || (!avail.slots?.length && !avail.holiday)) {
+        return `<td class="cell-empty ${S.blockedDays[dstr]?'on-blocked':''}">—</td>`;
+      }
+      if (avail.holiday) return `<td class="cell-holiday ${S.blockedDays[dstr]?'on-blocked':''}">🏖 Off</td>`;
       const times = avail.slots.map(s => `<span class="nowrap">${s.allDay ? 'All day' : fmtRange(s.start, s.end)}</span>`).join('<br>');
-      return `<td class="cell-avail">${times}</td>`;
+      return `<td class="cell-avail ${S.blockedDays[dstr]?'on-blocked':''}">${times}</td>`;
     }).join('');
     return `<tr><td style="font-weight:700;white-space:nowrap;">${name}</td>${cells}</tr>`;
   }).join('');
+}
+
+function renderRequestsBanner() {
+  const el = document.getElementById('requests-banner');
+  if (!el) return;
+  const pending = S.timeOffRequests.filter(r => r.status === 'pending');
+  if (!pending.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML = `<div class="req-banner-head">⏳ ${pending.length} time-off request${pending.length!==1?'s':''} pending</div>
+    <div class="req-banner-sub">Approve or deny them in the grid below (look for the ⏳ cells).</div>`;
+}
+
+async function toggleBlockedDay(dstr) {
+  if (S.blockedDays[dstr]) {
+    await sb.from('blocked_days').delete(`team_id=eq.${S.teamId}&date=eq.${dstr}`);
+    delete S.blockedDays[dstr];
+    toast('Day unblocked');
+  } else {
+    await sb.from('blocked_days').insert({ team_id: S.teamId, date: dstr });
+    S.blockedDays[dstr] = true;
+    toast('Day blocked — staff must request time off');
+  }
+  renderMgrOverview();
+}
+
+async function decideRequest(id, status) {
+  const req = S.timeOffRequests.find(r => r.id === id);
+  if (!req) return;
+  await sb.from('time_off_requests').update({ status }, `id=eq.${id}`);
+  req.status = status;
+  // If approved, actually mark that person off for the day
+  if (status === 'approved') {
+    await sb.from('availability').insert({
+      team_id: S.teamId, staff_name: req.staff_name, date: req.date,
+      start_time: null, end_time: null, is_holiday: true, note: 'Approved time off', all_day: false
+    });
+    if (!S.staffAvail[req.staff_name]) S.staffAvail[req.staff_name] = {};
+    if (!S.staffAvail[req.staff_name][req.date]) S.staffAvail[req.staff_name][req.date] = { slots: [], holiday: false };
+    S.staffAvail[req.staff_name][req.date].holiday = true;
+  }
+  renderMgrOverview();
+  toast(status === 'approved' ? `Approved — ${req.staff_name} is off ${req.date}` : 'Request denied');
 }
 
 /* ── Helpers ── */
