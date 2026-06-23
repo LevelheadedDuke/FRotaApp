@@ -605,10 +605,16 @@
   </div>
 
   <div class="scroll-body" id="staff-tab-shifts" style="display:none;">
-    <div class="section-header">
-      <div class="t-label">Your Upcoming Shifts</div>
+    <div class="week-nav">
+      <button class="week-nav-arrow" onclick="shiftStaffRotaWeek(-1)">‹</button>
+      <span class="week-nav-label" id="staff-rota-week-label">—</span>
+      <button class="week-nav-arrow" onclick="shiftStaffRotaWeek(1)">›</button>
     </div>
-    <div id="shifts-list"></div>
+    <div class="section-header">
+      <div class="t-label">Team Rota — who's working when</div>
+    </div>
+    <div id="staff-rota-container"></div>
+    <div style="height:24px;"></div>
   </div>
 
   <nav class="bottom-nav">
@@ -616,7 +622,7 @@
       <span class="nav-icon">📅</span>Availability
     </button>
     <button class="nav-item" id="nav-shifts" onclick="switchStaffTab('shifts')">
-      <span class="nav-icon">📋</span>My Shifts
+      <span class="nav-icon">📋</span>Team Rota
     </button>
   </nav>
 </div>
@@ -739,7 +745,8 @@
       <label>How</label>
       <div class="type-toggle">
         <button class="type-opt sel-avail" id="mode-times" onclick="setAvailMode('times')">Enter times</button>
-        <button class="type-opt" id="mode-pattern" onclick="setAvailMode('pattern')">Use a pattern</button>
+        <button class="type-opt" id="mode-allday" onclick="setAvailMode('allday')">All day</button>
+        <button class="type-opt" id="mode-pattern" onclick="setAvailMode('pattern')">Pattern</button>
       </div>
     </div>
     <div id="time-row" style="display:flex;gap:12px;">
@@ -1301,7 +1308,7 @@ async function fetchMyAvail() {
       if (row.is_holiday) {
         S.myAvail[row.date].holiday = true;
       } else {
-        S.myAvail[row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note || '', type: 'available' });
+        S.myAvail[row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note || '', type: 'available', allDay: !!row.all_day });
       }
     });
   }
@@ -1380,7 +1387,7 @@ function renderDayPanel() {
   avail.slots.forEach((sl, i) => {
     const div = document.createElement('div');
     div.className = 'slot-item avail';
-    div.innerHTML = `<div><div class="slot-time">${fmtRange(sl.start, sl.end)}</div><div class="slot-type avail">✅ Available${sl.note ? ' · '+sl.note : ''}</div></div>
+    div.innerHTML = `<div><div class="slot-time">${sl.allDay ? 'All day' : fmtRange(sl.start, sl.end)}</div><div class="slot-type avail">✅ Available${sl.note ? ' · '+sl.note : ''}</div></div>
       <button class="btn btn-sm btn-danger" onclick="deleteSlot('${dstr}',${i})">Remove</button>`;
     list.appendChild(div);
   });
@@ -1440,6 +1447,7 @@ function setType(t) {
 function setAvailMode(m) {
   availMode = m;
   document.getElementById('mode-times').className   = m === 'times' ? 'type-opt sel-avail' : 'type-opt';
+  document.getElementById('mode-allday').className  = m === 'allday' ? 'type-opt sel-avail' : 'type-opt';
   document.getElementById('mode-pattern').className = m === 'pattern' ? 'type-opt sel-avail' : 'type-opt';
   document.getElementById('time-row').style.display = m === 'times' ? 'flex' : 'none';
   document.getElementById('pattern-pick-row').style.display = m === 'pattern' ? 'block' : 'none';
@@ -1462,6 +1470,10 @@ async function confirmSlot() {
     await saveAvailRow(dstr, null, null, true, note);
     if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
     S.myAvail[dstr].holiday = true;
+  } else if (availMode === 'allday') {
+    await saveAvailRow(dstr, null, null, false, note, true);
+    if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
+    S.myAvail[dstr].slots.push({ start: null, end: null, note, type: 'available', allDay: true });
   } else if (availMode === 'pattern') {
     const pat = (S.patterns||[]).find(p => p.id === document.getElementById('slot-pattern').value);
     if (!pat) { toast('Choose a pattern'); return; }
@@ -1487,19 +1499,23 @@ async function confirmSlot() {
   toast('Saved ✓');
 }
 
-async function saveAvailRow(date, start, end, isHoliday, note) {
+async function saveAvailRow(date, start, end, isHoliday, note, allDay) {
   await sb.from('availability').insert({
     team_id: S.teamId, staff_name: S.name, date,
-    start_time: start, end_time: end, is_holiday: isHoliday, note: note || null
+    start_time: start, end_time: end, is_holiday: isHoliday, note: note || null,
+    all_day: !!allDay
   });
 }
 
 async function deleteSlot(dstr, idx) {
   const slot = S.myAvail[dstr]?.slots[idx];
   if (!slot) return;
-  await sb.from('availability').delete(
-    `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}&start_time=eq.${slot.start}&end_time=eq.${slot.end}`
-  );
+  const base = `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}`;
+  if (slot.allDay) {
+    await sb.from('availability').delete(`${base}&all_day=eq.true`);
+  } else {
+    await sb.from('availability').delete(`${base}&start_time=eq.${slot.start}&end_time=eq.${slot.end}`);
+  }
   S.myAvail[dstr].slots.splice(idx, 1);
   renderStaffWeekStrip();
   renderDayPanel();
@@ -1523,38 +1539,119 @@ async function toggleHoliday() {
   renderDayPanel();
 }
 
-/* ── Shifts tab ── */
-async function loadMyShifts() {
-  const list = document.getElementById('shifts-list');
-  // Get this staff member's assignments, then the matching shift details
-  const asg = await sb.from('shift_assignments').select('*',
-    `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}`);
-  if (!asg.ok || !asg.data?.length) {
-    list.innerHTML = '<div class="empty-state"><div class="ei">📋</div><div>No shifts scheduled yet.</div><div class="et">Check back once your manager builds the rota.</div></div>';
-    return;
+/* ── Team Rota tab (read-only, staff view) ── */
+let staffRotaWeekStart = null;
+let staffRotaData = { shifts: {}, staffList: [] };
+
+function shiftStaffRotaWeek(dir) {
+  if (!staffRotaWeekStart) staffRotaWeekStart = monOf(new Date());
+  staffRotaWeekStart.setDate(staffRotaWeekStart.getDate() + dir*7);
+  loadStaffRota();
+}
+
+async function loadStaffRota() {
+  if (!staffRotaWeekStart) staffRotaWeekStart = monOf(new Date());
+  const days = weekDays(staffRotaWeekStart).map(ds);
+  const first = days[0], last = days[6];
+
+  // Fetch this week's shifts + assignments + the staff list (for departments)
+  const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&date=gte.${first}&date=lte.${last}&order=start_time.asc`);
+  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}`);
+  const st  = await sb.from('staff_members').select('*', `team_id=eq.${S.teamId}&order=name.asc`);
+
+  const asgByShift = {};
+  if (asg.ok && asg.data) asg.data.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
+
+  staffRotaData.shifts = {};
+  if (shf.ok && shf.data) {
+    shf.data.forEach(s => {
+      (staffRotaData.shifts[s.date] ||= []).push({
+        id: s.id, label: s.label||'', start: s.start_time, end: s.end_time,
+        department: s.department || 'foh', assigned: asgByShift[s.id] || []
+      });
+    });
   }
-  const shiftIds = asg.data.map(a => a.shift_id);
+  staffRotaData.staffList = (st.ok && st.data) ? st.data : [];
+  renderStaffRota();
+}
+
+function staffRotaDept(name) {
+  const rec = staffRotaData.staffList.find(s => s.name === name);
+  return (rec && rec.department) ? rec.department : 'foh';
+}
+
+function renderStaffRota() {
+  const days = weekDays(staffRotaWeekStart);
+  document.getElementById('staff-rota-week-label').textContent = weekLabel(staffRotaWeekStart);
+  const container = document.getElementById('staff-rota-container');
+  container.innerHTML = '';
+
+  // collect everyone who has a shift this week, or is on the staff list
+  const shiftNames = new Set();
+  Object.values(staffRotaData.shifts).forEach(list => list.forEach(sh => sh.assigned.forEach(n => shiftNames.add(n))));
+  const allNames = [...new Set([...staffRotaData.staffList.map(s=>s.name), ...shiftNames])];
+
+  const depts = [
+    { key:'kitchen', title:'Kitchen', dot:'var(--blue)', cls:'k' },
+    { key:'foh', title:'Front of House', dot:'var(--green)', cls:'f' },
+  ];
   const today = ds(new Date());
-  const shf = await sb.from('shifts').select('*',
-    `team_id=eq.${S.teamId}&id=in.(${shiftIds.join(',')})&date=gte.${today}&order=date.asc`);
-  if (!shf.ok || !shf.data?.length) {
-    list.innerHTML = '<div class="empty-state"><div class="ei">📋</div><div>No upcoming shifts.</div><div class="et">Past shifts aren\'t shown here.</div></div>';
-    return;
+
+  let anything = false;
+  depts.forEach(dept => {
+    // names with a shift of this dept this week
+    const names = allNames.filter(n => days.some(d => {
+      const list = staffRotaData.shifts[ds(d)] || [];
+      return list.some(sh => (sh.department||staffRotaDept(n))===dept.key && sh.assigned.includes(n));
+    })).sort();
+
+    const block = document.createElement('div');
+    block.className = 'dept-block';
+    let inner = `<div class="dept-title"><span class="dept-dot" style="background:${dept.dot}"></span>${dept.title}</div>`;
+
+    if (!names.length) {
+      inner += `<div class="grid-scroll"><div class="dept-empty">Nobody scheduled in ${dept.title} this week.</div></div>`;
+      block.innerHTML = inner;
+      container.appendChild(block);
+      return;
+    }
+    anything = true;
+
+    let head = `<tr><th class="grid-corner"></th>`;
+    days.forEach(d => {
+      head += `<th class="grid-dayhead ${ds(d)===today?'is-today':''}"><span class="gh-dow">${DAY_S[d.getDay()]}</span><span class="gh-date">${d.getDate()} ${MON_S[d.getMonth()]}</span></th>`;
+    });
+    head += `</tr>`;
+
+    let rows = '';
+    names.forEach(name => {
+      const isMe = name === S.name;
+      const initials = name.split(' ').map(x=>x[0]).join('').toUpperCase().slice(0,2);
+      let cells = '';
+      days.forEach(d => {
+        const dstr = ds(d);
+        const list = (staffRotaData.shifts[dstr]||[]).filter(sh => (sh.department||staffRotaDept(name))===dept.key && sh.assigned.includes(name));
+        let content = '';
+        if (list.length) {
+          content = list.map(sh => `<div class="cell-shift ${dept.cls}"><span class="cs-label">${sh.label||dept.title}</span><span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`).join('');
+        }
+        cells += `<td class="grid-cell" style="cursor:default;">${content}</td>`;
+      });
+      rows += `<tr>
+        <td class="grid-staffcell" style="${isMe?'box-shadow: inset 3px 0 0 var(--blue);':''}">
+          <span class="gs-avatar">${initials}</span>
+          <span class="gs-name">${name}${isMe?' <span style="color:var(--blue);font-size:0.7rem;">(you)</span>':''}</span>
+        </td>${cells}</tr>`;
+    });
+
+    inner += `<div class="grid-scroll"><table class="rota-grid"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+    block.innerHTML = inner;
+    container.appendChild(block);
+  });
+
+  if (!anything) {
+    container.innerHTML = '<div class="empty-state"><div class="ei">📋</div><div>No shifts scheduled this week.</div><div class="et">Check back once your manager has built the rota.</div></div>';
   }
-  list.innerHTML = shf.data.map(r => {
-    const d = new Date(r.date + 'T12:00:00');
-    return `<div class="shift-card">
-      <div class="shift-date-block">
-        <div class="shift-day">${DAY_S[d.getDay()]}</div>
-        <div class="shift-num">${d.getDate()}</div>
-        <div class="shift-mon">${MON_S[d.getMonth()]}</div>
-      </div>
-      <div>
-        <div class="shift-times">${r.label ? r.label+' · ' : ''}${fmtRange(r.start_time||'', r.end_time||'')}</div>
-        <div class="shift-status"><span class="badge badge-green">Confirmed</span></div>
-      </div>
-    </div>`;
-  }).join('');
 }
 
 function switchStaffTab(tab) {
@@ -1563,7 +1660,7 @@ function switchStaffTab(tab) {
   document.getElementById('staff-tab-shifts').style.display  = tab === 'shifts' ? 'block' : 'none';
   document.getElementById('nav-avail').className  = 'nav-item' + (tab === 'avail' ? ' active' : '');
   document.getElementById('nav-shifts').className = 'nav-item' + (tab === 'shifts' ? ' active' : '');
-  if (tab === 'shifts') loadMyShifts();
+  if (tab === 'shifts') { if (!staffRotaWeekStart) staffRotaWeekStart = monOf(new Date()); loadStaffRota(); }
 }
 
 /* ── Realtime ── */
@@ -1604,8 +1701,10 @@ async function fetchAllAvail() {
       if (!S.staffAvail[row.staff_name][row.date]) S.staffAvail[row.staff_name][row.date] = { slots: [], holiday: false };
       if (row.is_holiday) {
         S.staffAvail[row.staff_name][row.date].holiday = true;
+      } else if (row.all_day) {
+        S.staffAvail[row.staff_name][row.date].slots.push({ start: null, end: null, note: row.note||'', type:'available', allDay:true });
       } else if (row.start_time) {
-        S.staffAvail[row.staff_name][row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note||'', type:'available' });
+        S.staffAvail[row.staff_name][row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note||'', type:'available', allDay:false });
       }
     });
   }
@@ -1691,7 +1790,7 @@ function renderMgrOverview() {
       const avail = S.staffAvail[name]?.[dstr];
       if (!avail || (!avail.slots?.length && !avail.holiday)) return '<td class="cell-empty">—</td>';
       if (avail.holiday) return '<td class="cell-holiday">🏖 Off</td>';
-      const times = avail.slots.map(s => fmtRange(s.start, s.end)).join('<br>');
+      const times = avail.slots.map(s => s.allDay ? 'All day' : fmtRange(s.start, s.end)).join('<br>');
       return `<td class="cell-avail">✅ ${times}</td>`;
     }).join('');
     return `<tr><td style="font-weight:700;white-space:nowrap;">${name}</td>${cells}</tr>`;
@@ -1702,9 +1801,11 @@ function renderMgrOverview() {
 function timeOverlapsAvail(name, dstr, start, end) {
   const av = S.staffAvail[name]?.[dstr];
   if (!av || av.holiday) return false;
-  // Compare by minutes (not raw strings) so "10:00:00" vs "10:00" matches correctly.
+  // An "all day" availability covers any shift that day.
+  if (av.slots?.some(s => s.type === 'available' && s.allDay)) return true;
+  // Otherwise compare by minutes (not raw strings) so "10:00:00" vs "10:00" matches correctly.
   const s0 = toMins(start), e0 = toMins(end);
-  return av.slots?.some(s => s.type === 'available' && toMins(s.start) <= s0 && toMins(s.end) >= e0);
+  return av.slots?.some(s => s.type === 'available' && !s.allDay && toMins(s.start) <= s0 && toMins(s.end) >= e0);
 }
 
 /* ── PATTERN DRAG/TAP HELPERS ── */
