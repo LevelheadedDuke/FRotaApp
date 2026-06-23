@@ -526,6 +526,7 @@
   <div class="splash-actions">
     <button class="btn btn-primary btn-full" onclick="showSetup('staff')">I'm a Staff Member</button>
     <button class="btn btn-ghost btn-full" onclick="showSetup('manager')">I'm a Manager</button>
+    <button class="btn btn-ghost btn-full" style="opacity:0.85;font-size:0.88rem;" onclick="showSetup('supervisor')">Supervisor (test)</button>
   </div>
   <div id="splash-error" style="color:var(--red);font-size:0.82rem;text-align:center;display:none;"></div>
 </div>
@@ -638,7 +639,7 @@
   <div class="topbar">
     <div>
       <div class="topbar-brand" id="mgr-team-label">Rota</div>
-      <div style="font-size:0.72rem;color:var(--muted);margin-top:1px;">Manager View</div>
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:1px;" id="mgr-view-subtitle">Manager View</div>
     </div>
     <div class="topbar-right">
       <button class="icon-btn" onclick="confirmLogout()" title="Log out">⏏</button>
@@ -705,7 +706,7 @@
           <label>Team Name</label>
           <input type="text" id="settings-team-name">
         </div>
-        <div class="field">
+        <div class="field" id="settings-pin-field">
           <label>Change Manager PIN</label>
           <input type="password" inputmode="numeric" id="settings-new-pin" placeholder="New PIN (leave blank to keep)">
         </div>
@@ -1030,6 +1031,7 @@ const S = {
   teamCode: '',
   teamName: '',
   managerPin: '',
+  isSupervisor: false,
   weekStart: null,      // Date (Monday) — staff calendar
   mgrWeekStart: null,   // Date (Monday) — manager view
   selectedDate: null,   // 'YYYY-MM-DD'
@@ -1059,7 +1061,8 @@ const S = {
 function persist() {
   sessionStorage.setItem('rota_session', JSON.stringify({
     mode: S.mode, name: S.name, teamId: S.teamId,
-    teamCode: S.teamCode, teamName: S.teamName, managerPin: S.managerPin
+    teamCode: S.teamCode, teamName: S.teamName, managerPin: S.managerPin,
+    isSupervisor: S.isSupervisor
   }));
 }
 function loadSession() {
@@ -1170,14 +1173,27 @@ async function showSetup(mode) {
 
   const isManagerLogin  = mode === 'manager' && managerFlow === 'login';
   const isManagerCreate = mode === 'manager' && managerFlow === 'create';
+  const isSupervisor    = mode === 'supervisor';
 
   document.getElementById('field-name').style.display          = mode === 'staff' ? 'none' : 'flex';
   document.getElementById('field-staff-code').style.display    = mode === 'staff' ? 'flex' : 'none';
-  document.getElementById('field-join-code').style.display     = (mode === 'staff' || isManagerLogin) ? 'flex' : 'none';
-  document.getElementById('field-manager-pin').style.display   = isManagerLogin ? 'flex' : 'none';
+  document.getElementById('field-join-code').style.display     = (mode === 'staff' || isManagerLogin || isSupervisor) ? 'flex' : 'none';
+  document.getElementById('field-manager-pin').style.display   = (isManagerLogin || isSupervisor) ? 'flex' : 'none';
   document.getElementById('field-team-setup').style.display    = isManagerCreate ? 'flex' : 'none';
   document.getElementById('field-new-code').style.display      = isManagerCreate ? 'flex' : 'none';
   document.getElementById('field-new-pin').style.display       = isManagerCreate ? 'flex' : 'none';
+
+  // The manager-pin field is reused for the supervisor's access word; relabel it accordingly.
+  const pinLabel = document.querySelector('#field-manager-pin label');
+  if (pinLabel) pinLabel.textContent = isSupervisor ? 'Access word' : 'Manager PIN';
+  const pinInput = document.getElementById('setup-manager-pin');
+  if (pinInput) {
+    pinInput.type = isSupervisor ? 'text' : 'password';
+    pinInput.placeholder = isSupervisor ? "Type TEST" : 'Enter manager PIN';
+  }
+  // Name field is hidden for supervisor too
+  if (isSupervisor) document.getElementById('field-name').style.display = 'none';
+
   if (isManagerCreate) {
     document.getElementById('setup-title').textContent = 'Create your team';
     document.getElementById('setup-sub').textContent   = 'Set up your rota. This can only be done once.';
@@ -1187,6 +1203,10 @@ async function showSetup(mode) {
     document.getElementById('setup-title').textContent = 'Manager login';
     document.getElementById('setup-sub').textContent   = 'Enter your team code and manager PIN.';
     document.getElementById('setup-btn').textContent   = 'Log In';
+  } else if (isSupervisor) {
+    document.getElementById('setup-title').textContent = 'Supervisor (test)';
+    document.getElementById('setup-sub').textContent   = 'Enter the team code and the access word to try out the manager tools. This edits the real rota.';
+    document.getElementById('setup-btn').textContent   = 'Enter Test Mode';
   } else {
     document.getElementById('setup-title').textContent = 'Staff login';
     document.getElementById('setup-sub').textContent   = 'Enter the team code and your personal 4-digit code.';
@@ -1245,6 +1265,24 @@ async function confirmSetup() {
 
       S.mode = 'manager'; S.name = name || 'Manager'; S.teamId = team.id;
       S.teamCode = code; S.teamName = team.team_name; S.managerPin = pin;
+      persist();
+      await initManager();
+
+    } else if (setupMode === 'supervisor') {
+      // SUPERVISOR TEST LOGIN: team code + the access word TEST (no manager PIN)
+      const code = document.getElementById('setup-join').value.trim().toUpperCase();
+      const word = document.getElementById('setup-manager-pin').value.trim().toUpperCase();
+      if (!code) { err('setup-error','Please enter the team code'); setLoading(false); return; }
+      if (word !== 'TEST') { err('setup-error','Access word is incorrect'); setLoading(false); return; }
+
+      const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
+      if (!res.ok || !res.data?.length) { err('setup-error','Team code not found'); setLoading(false); return; }
+      const team = res.data[0];
+
+      S.mode = 'manager';            // full manager interface…
+      S.isSupervisor = true;         // …but flagged as a supervisor (PIN hidden)
+      S.name = 'Supervisor'; S.teamId = team.id;
+      S.teamCode = code; S.teamName = team.team_name; S.managerPin = '';
       persist();
       await initManager();
 
@@ -1687,6 +1725,11 @@ async function initManager() {
   document.getElementById('mgr-team-label').textContent         = S.teamName;
   document.getElementById('mgr-team-code-display').textContent  = S.teamCode;
   document.getElementById('settings-team-name').value           = S.teamName;
+
+  // Supervisor (test) mode: same interface, but hide the manager PIN controls
+  document.getElementById('mgr-view-subtitle').textContent = S.isSupervisor ? 'Supervisor View (test)' : 'Manager View';
+  const pinField = document.getElementById('settings-pin-field');
+  if (pinField) pinField.style.display = S.isSupervisor ? 'none' : 'flex';
 
   await fetchAllAvail();
   renderMgrOverview();
@@ -3104,7 +3147,8 @@ function switchMgrTab(tab) {
 /* ── Manager settings ── */
 async function saveTeamSettings() {
   const newName = document.getElementById('settings-team-name').value.trim();
-  const newPin  = document.getElementById('settings-new-pin').value.trim();
+  // Supervisors can never change the PIN, even if the field were reached somehow
+  const newPin  = S.isSupervisor ? '' : document.getElementById('settings-new-pin').value.trim();
   const update  = {};
   if (newName) update.team_name = newName;
   if (newPin && newPin.length >= 4) update.manager_pin = newPin;
@@ -3123,7 +3167,7 @@ function confirmLogout() { openModal('modal-logout'); }
 function doLogout() {
   clearInterval(S.realtimeSub);
   sessionStorage.removeItem('rota_session');
-  Object.assign(S, { mode:null, name:'', teamId:null, teamCode:'', teamName:'', managerPin:'' });
+  Object.assign(S, { mode:null, name:'', teamId:null, teamCode:'', teamName:'', managerPin:'', isSupervisor:false });
   // Wipe all setup fields so no name/PIN/code lingers for the next person
   ['setup-name','setup-join','setup-staff-code','setup-manager-pin','setup-team','setup-new-code','setup-new-pin']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
