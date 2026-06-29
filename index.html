@@ -1159,6 +1159,10 @@ const DEPARTMENTS = [
 function deptTitle(key) { const d = DEPARTMENTS.find(x => x.key === key); return d ? d.title : 'Front of House'; }
 function deptCls(key)   { const d = DEPARTMENTS.find(x => x.key === key); return d ? d.cls : 'f'; }
 
+// Case-insensitive alphabetical sort for names (so "alice" and "Bob" order naturally)
+function byName(a, b) { return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }); }
+function sortNames(arr) { return [...arr].sort(byName); }
+
 function monOf(d) {
   const r = new Date(d); r.setHours(0,0,0,0);
   const day = r.getDay(); r.setDate(r.getDate() - (day === 0 ? 6 : day - 1));
@@ -2090,7 +2094,7 @@ function renderMgrOverview() {
   // Pending time-off requests banner (for the whole team)
   renderRequestsBanner();
 
-  const names = Object.keys(S.staffAvail).sort();
+  const names = sortNames(Object.keys(S.staffAvail));
   const head  = document.getElementById('ov-head');
   const body  = document.getElementById('ov-body');
 
@@ -2435,7 +2439,7 @@ function renderShifts() {
   const today = ds(new Date());
 
   depts.forEach(dept => {
-    const names = allNames.filter(n => staffDepartment(n) === dept.key || staffHasDeptThisWeek(n, dept.key)).sort();
+    const names = allNames.filter(n => staffDepartment(n) === dept.key || staffHasDeptThisWeek(n, dept.key)).sort(byName);
 
     const block = document.createElement('div');
     block.className = 'dept-block';
@@ -2811,7 +2815,7 @@ function openAddShift(dstr, presetName, deptHint) {
   fillTimeSelect('shift-end', '13:00');
 
   // staff picker
-  const allNames = [...new Set([...S.staffList.map(s=>s.name), ...Object.keys(S.staffAvail)])].sort();
+  const allNames = sortNames([...new Set([...S.staffList.map(s=>s.name), ...Object.keys(S.staffAvail)])]);
   const staffPick = document.getElementById('shift-staff-pick');
   staffPick.innerHTML = allNames.map(n => `<option value="${n}">${n}</option>`).join('');
   if (presetName) staffPick.value = presetName;
@@ -2985,7 +2989,7 @@ async function gatherRota(weekStarts) {
     const days = weekDays(mon);
     const allNames = new Set();
     days.forEach(d => (byDate[ds(d)]||[]).forEach(sh => sh.assigned.forEach(n => allNames.add(n))));
-    const names = [...allNames].sort();
+    const names = [...allNames].sort(byName);
 
     const depts = DEPARTMENTS;
 
@@ -3025,14 +3029,17 @@ async function printRota() {
   setLoading(false);
 
   const dayHead = (d) => `${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`;
+  // One PAGE per department PER week (each department's each week prints on its own page).
   let body = '';
-  data.forEach((wk, wi) => {
-    body += `<div class="wk ${wi>0?'pb':''}">
-      <h2>${S.teamName} — Rota</h2>
-      <h3>Week of ${weekLabel(wk.mon)}</h3>`;
-    wk.sections.forEach(sec => {
-      if (!sec.rows.length) return;
-      body += `<h4>${sec.title}</h4><table><thead><tr><th class="nm">Staff</th>`;
+  let pageCount = 0;
+  DEPARTMENTS.forEach(dept => {
+    data.forEach(wk => {
+      const sec = wk.sections.find(s => s.title === dept.title);
+      if (!sec || !sec.rows.length) return;   // skip empty department-weeks
+      body += `<div class="dept-page ${pageCount>0?'pb':''}">
+        <h2>${S.teamName} — ${dept.title}</h2>
+        <h3>Week of ${weekLabel(wk.mon)}</h3>`;
+      body += `<table><thead><tr><th class="nm">Staff</th>`;
       wk.days.forEach(d => body += `<th>${dayHead(d)}</th>`);
       body += `<th class="hr">Hours</th></tr></thead><tbody>`;
       sec.rows.forEach(r => {
@@ -3040,11 +3047,11 @@ async function printRota() {
         r.cells.forEach(c => body += `<td>${c || ''}</td>`);
         body += `<td class="hr">${hoursLabel(r.hours)}</td></tr>`;
       });
-      body += `</tbody></table>`;
+      body += `</tbody></table></div>`;
+      pageCount++;
     });
-    if (!wk.sections.some(s => s.rows.length)) body += `<p class="empty">No shifts scheduled this week.</p>`;
-    body += `</div>`;
   });
+  if (!pageCount) body = `<div class="dept-page"><h2>${S.teamName} — Rota</h2><p class="empty">No shifts scheduled in this date range.</p></div>`;
 
   const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rota</title>
   <style>
@@ -3059,7 +3066,7 @@ async function printRota() {
     th { background: #222; color: #fff; }
     td.nm, th.nm { text-align: left; width: 90px; font-weight: bold; background: #f0f0f0; }
     td.hr, th.hr { width: 56px; font-weight: bold; background: #f7f7f7; }
-    .wk.pb { page-break-before: always; }
+    .dept-page.pb { page-break-before: always; }
     .empty { color: #888; font-style: italic; }
   </style></head><body>${body}</body></html>`;
 
@@ -3079,27 +3086,40 @@ async function exportRotaXlsx() {
   const data = await gatherRota(weeks);
 
   const wb = XLSX.utils.book_new();
-  data.forEach(wk => {
+  // One SHEET per department; within it, every week stacked.
+  let sheetsAdded = 0;
+  DEPARTMENTS.forEach(dept => {
+    const hasAny = data.some(wk => {
+      const sec = wk.sections.find(s => s.title === dept.title);
+      return sec && sec.rows.length;
+    });
+    if (!hasAny) return;
+
     const aoa = [];
-    aoa.push([`${S.teamName} — Rota`]);
-    aoa.push([`Week of ${weekLabel(wk.mon)}`]);
+    aoa.push([`${S.teamName} — ${dept.title}`]);
     aoa.push([]);
-    const headerDays = wk.days.map(d => `${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`);
-    wk.sections.forEach(sec => {
-      if (!sec.rows.length) return;
-      aoa.push([sec.title]);
+    let maxDays = 7;
+    data.forEach(wk => {
+      const sec = wk.sections.find(s => s.title === dept.title);
+      if (!sec || !sec.rows.length) return;
+      const headerDays = wk.days.map(d => `${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`);
+      maxDays = headerDays.length;
+      aoa.push([`Week of ${weekLabel(wk.mon)}`]);
       aoa.push(['Staff', ...headerDays, 'Hours']);
       sec.rows.forEach(r => aoa.push([r.name, ...r.cells, hoursLabel(r.hours)]));
       aoa.push([]);
     });
-    if (!wk.sections.some(s=>s.rows.length)) aoa.push(['No shifts scheduled this week.']);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{wch:16}, ...wk.days.map(()=>({wch:16})), {wch:9}];
-    // sheet name: short week label, sanitised (Excel max 31 chars, no special chars)
-    let nm = weekLabel(wk.mon).replace(/[\\/?*\[\]:]/g,'-').slice(0,28);
-    XLSX.utils.book_append_sheet(wb, ws, nm || 'Week');
+    ws['!cols'] = [{wch:16}, ...Array.from({length:maxDays},()=>({wch:16})), {wch:9}];
+    let nm = dept.title.replace(/[\\/?*\[\]:]/g,'-').slice(0,28);
+    XLSX.utils.book_append_sheet(wb, ws, nm || 'Dept');
+    sheetsAdded++;
   });
+  if (!sheetsAdded) {
+    const ws = XLSX.utils.aoa_to_sheet([[`${S.teamName} — Rota`], ['No shifts scheduled in this date range.']]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Rota');
+  }
 
   const first = ds(weeks[0]);
   const last = ds(weeks[weeks.length-1]);
@@ -3351,7 +3371,7 @@ function staffCodeFor(name) {
 }
 
 function renderStaffListMgr() {
-  const names = [...new Set([...Object.keys(S.staffAvail), ...S.staffList.map(s=>s.name)])].sort();
+  const names = sortNames([...new Set([...Object.keys(S.staffAvail), ...S.staffList.map(s=>s.name)])]);
   const container = document.getElementById('staff-list-mgr');
   if (!names.length) {
     container.innerHTML = '<div class="empty-state"><div class="ei">👥</div><div>No staff yet.</div><div class="et">Tap “+ Add Staff” to create your first team member.</div></div>';
