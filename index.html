@@ -1161,7 +1161,7 @@ const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
 // When true, manager/staff login is verified by the secure "login" Edge Function
 // (PIN & staff codes checked server-side, never sent to the browser).
 // Leave false until the function is deployed; set true to switch on. Reversible.
-const USE_LOGIN_FUNCTION = true;
+const USE_LOGIN_FUNCTION = false;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
 
 async function callLoginFunction(body) {
@@ -1466,7 +1466,7 @@ async function showSetup(mode) {
   const isManagerLogin  = mode === 'manager' && managerFlow === 'login';
   const isManagerCreate = mode === 'manager' && managerFlow === 'create';
 
-  document.getElementById('field-name').style.display          = mode === 'staff' ? 'none' : 'flex';
+  document.getElementById('field-name').style.display          = isManagerCreate ? 'flex' : 'none';
   document.getElementById('field-staff-code').style.display    = mode === 'staff' ? 'flex' : 'none';
   document.getElementById('field-join-code').style.display     = (mode === 'staff' || isManagerLogin) ? 'flex' : 'none';
   document.getElementById('field-manager-pin').style.display   = isManagerLogin ? 'flex' : 'none';
