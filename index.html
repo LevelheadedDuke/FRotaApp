@@ -208,6 +208,14 @@
       transition: border-color 0.15s;
     }
     .add-btn:active { border-color: var(--blue); background: var(--blue-dim); }
+    .week-tools { display: flex; gap: 7px; padding: 10px 14px 4px; flex-wrap: wrap; }
+    .wt-btn {
+      flex: 1; min-width: 90px; padding: 9px 8px; border-radius: 9px;
+      background: var(--night-2); border: 1px solid var(--rim); color: var(--text);
+      font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: background 0.12s, opacity 0.12s;
+    }
+    .wt-btn:disabled { opacity: 0.4; cursor: default; }
+    .wt-btn:not(:disabled):active { background: var(--night-3); }
     .hol-btn {
       margin: 0 14px 14px;
       padding: 11px;
@@ -606,6 +614,11 @@
 
   <!-- Tab content -->
   <div class="scroll-body" id="staff-tab-avail">
+    <div class="week-tools">
+      <button class="wt-btn" onclick="copyThisWeek()">⧉ Copy week</button>
+      <button class="wt-btn" id="paste-week-btn" onclick="pasteWeek()" disabled>📋 Paste week</button>
+      <button class="wt-btn" onclick="openStandardMenu()">★ Standard week</button>
+    </div>
     <div class="day-panel" id="staff-day-panel">
       <div class="day-panel-header">
         <div>
@@ -1020,6 +1033,30 @@
   </div>
 </div>
 
+<!-- Standard week menu -->
+<div class="modal-overlay" id="modal-standard">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Standard Week</div>
+    <div class="t-sub" id="standard-status">—</div>
+    <button class="btn btn-primary btn-full" style="margin-bottom:8px;" onclick="saveStandardWeek()">💾 Save this week as my standard</button>
+    <button class="btn btn-ghost btn-full" id="apply-standard-btn" style="margin-bottom:8px;" onclick="applyStandardWeek()">★ Apply my standard to this week</button>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-standard')">Close</button>
+  </div>
+</div>
+
+<!-- Add or replace when target week has entries -->
+<div class="modal-overlay" id="modal-applymode">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">This week already has availability</div>
+    <div class="t-sub" id="applymode-sub">Do you want to add to it, or replace it?</div>
+    <button class="btn btn-primary btn-full" style="margin-bottom:8px;" onclick="resolveApplyMode('add')">➕ Add to existing</button>
+    <button class="btn btn-danger btn-full" style="margin-bottom:8px;" onclick="resolveApplyMode('replace')">♻ Replace it</button>
+    <button class="btn btn-ghost btn-full" onclick="resolveApplyMode('cancel')">Cancel</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ════════════════════════════════════════
@@ -1326,6 +1363,7 @@ async function initStaff() {
   await fetchPatternsForStaff();
   await fetchBlockedDays();
   await fetchMyRequests();
+  await fetchStandardWeek();
   renderStaffWeekStrip();
   renderDayPanel();
   setLoading(false);
@@ -1615,6 +1653,150 @@ async function toggleHoliday() {
   }
   renderStaffWeekStrip();
   renderDayPanel();
+}
+
+/* ════════════════════════════════════════
+   COPY / PASTE WEEK + STANDARD WEEK
+═════════════════════════════════════════ */
+let copiedWeek = null;          // { days: [ {dow, slots:[{start,end,allDay}], holiday} ] }
+let standardWeek = null;        // same shape, loaded from staff_members.standard_week
+let pendingApply = null;        // { template, resolve } while the add/replace modal is open
+
+// Extract a week (starting at a Monday Date) into a day-of-week keyed template
+function extractWeek(weekStartDate) {
+  const days = weekDays(weekStartDate).map(d => {
+    const dstr = ds(d);
+    const av = S.myAvail[dstr] || { slots: [], holiday: false };
+    return {
+      dow: d.getDay(),
+      holiday: !!av.holiday,
+      slots: (av.slots || []).filter(s => s.type === 'available')
+        .map(s => ({ start: s.start, end: s.end, allDay: !!s.allDay }))
+    };
+  });
+  return { days };
+}
+
+function templateHasContent(t) {
+  return t && t.days.some(d => d.holiday || (d.slots && d.slots.length));
+}
+function weekHasContent(weekStartDate) {
+  return weekDays(weekStartDate).some(d => {
+    const av = S.myAvail[ds(d)];
+    return av && (av.holiday || (av.slots && av.slots.length));
+  });
+}
+
+// Remove every availability row in a week (used by "replace")
+async function clearWeek(weekStartDate) {
+  for (const d of weekDays(weekStartDate)) {
+    const dstr = ds(d);
+    await sb.from('availability').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}`);
+    if (S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
+  }
+}
+
+// Write a template onto a week. mode: 'add' keeps existing, 'replace' wipes first.
+// Blocked days are always skipped (those need a request).
+async function writeTemplateToWeek(template, weekStartDate, mode) {
+  if (mode === 'replace') await clearWeek(weekStartDate);
+  let skippedBlocked = 0;
+  for (const d of weekDays(weekStartDate)) {
+    const dstr = ds(d);
+    const tpl = template.days.find(x => x.dow === d.getDay());
+    if (!tpl) continue;
+    if (S.blockedDays[dstr]) {
+      if (tpl.holiday || (tpl.slots && tpl.slots.length)) skippedBlocked++;
+      continue;
+    }
+    if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
+    // holiday
+    if (tpl.holiday && !S.myAvail[dstr].holiday) {
+      await saveAvailRow(dstr, null, null, true, '');
+      S.myAvail[dstr].holiday = true;
+    }
+    // slots
+    for (const s of (tpl.slots || [])) {
+      // in 'add' mode, skip exact duplicates
+      const dup = S.myAvail[dstr].slots.some(x => x.allDay === s.allDay && x.start === s.start && x.end === s.end);
+      if (dup) continue;
+      await saveAvailRow(dstr, s.allDay ? null : s.start, s.allDay ? null : s.end, false, '', s.allDay);
+      S.myAvail[dstr].slots.push({ start: s.allDay?null:s.start, end: s.allDay?null:s.end, note:'', type:'available', allDay: s.allDay });
+    }
+  }
+  renderStaffWeekStrip();
+  renderDayPanel();
+  if (skippedBlocked) toast(`Applied — ${skippedBlocked} blocked day(s) skipped`, 3200);
+  else toast('Applied to this week ✓');
+}
+
+// Apply a template to the current week, asking add/replace if the week has content
+async function applyTemplateToCurrentWeek(template) {
+  if (!templateHasContent(template)) { toast('Nothing to apply'); return; }
+  if (weekHasContent(S.weekStart)) {
+    pendingApply = { template };
+    document.getElementById('applymode-sub').textContent = 'This week already has availability. Add to it, or replace it?';
+    openModal('modal-applymode');
+  } else {
+    setLoading(true, 'Applying…');
+    await writeTemplateToWeek(template, S.weekStart, 'add');
+    setLoading(false);
+  }
+}
+
+async function resolveApplyMode(mode) {
+  closeModal('modal-applymode');
+  if (mode === 'cancel' || !pendingApply) { pendingApply = null; return; }
+  const tpl = pendingApply.template;
+  pendingApply = null;
+  setLoading(true, mode === 'replace' ? 'Replacing…' : 'Adding…');
+  await writeTemplateToWeek(tpl, S.weekStart, mode);
+  setLoading(false);
+}
+
+// ── Copy / paste ──
+function copyThisWeek() {
+  copiedWeek = extractWeek(S.weekStart);
+  if (!templateHasContent(copiedWeek)) { copiedWeek = null; toast('This week has no availability to copy'); return; }
+  const btn = document.getElementById('paste-week-btn');
+  if (btn) btn.disabled = false;
+  toast('Week copied — move to another week and tap Paste');
+}
+
+async function pasteWeek() {
+  if (!copiedWeek) { toast('Copy a week first'); return; }
+  await applyTemplateToCurrentWeek(copiedWeek);
+}
+
+// ── Standard week ──
+function openStandardMenu() {
+  const has = templateHasContent(standardWeek);
+  document.getElementById('standard-status').textContent = has
+    ? 'You have a saved standard week. Apply it to this week, or overwrite it with the week you\'re viewing.'
+    : 'No standard week saved yet. Set this week up how you like, then save it as your standard.';
+  document.getElementById('apply-standard-btn').disabled = !has;
+  document.getElementById('apply-standard-btn').style.opacity = has ? '1' : '0.4';
+  openModal('modal-standard');
+}
+
+async function saveStandardWeek() {
+  const tpl = extractWeek(S.weekStart);
+  if (!templateHasContent(tpl)) { toast('This week is empty — add some availability first'); return; }
+  standardWeek = tpl;
+  await sb.from('staff_members').update({ standard_week: tpl }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  closeModal('modal-standard');
+  toast('Saved as your standard week ✓');
+}
+
+async function applyStandardWeek() {
+  if (!templateHasContent(standardWeek)) { toast('No standard week saved yet'); return; }
+  closeModal('modal-standard');
+  await applyTemplateToCurrentWeek(standardWeek);
+}
+
+async function fetchStandardWeek() {
+  const res = await sb.from('staff_members').select('standard_week', `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  standardWeek = (res.ok && res.data?.[0]?.standard_week) ? res.data[0].standard_week : null;
 }
 
 /* ── Time-off requests (staff side) ── */
