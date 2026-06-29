@@ -281,6 +281,19 @@
       border-radius: var(--r); padding: 14px 16px; margin: 0 14px 10px;
       display: flex; align-items: center; gap: 14px;
     }
+    .staff-card.has-request { border-color: rgba(255,92,92,0.5); box-shadow: 0 0 0 1px rgba(255,92,92,0.25); }
+    .del-request-banner {
+      width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+      background: rgba(255,92,92,0.12); border: 1px solid rgba(255,92,92,0.3);
+      color: #ff9d9d; font-size: 0.76rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .nav-dot {
+      position: absolute; top: 6px; right: 50%; transform: translateX(14px);
+      width: 9px; height: 9px; border-radius: 50%; background: var(--red);
+      border: 1.5px solid var(--night-1, #0d1117);
+    }
+    .nav-item { position: relative; }
     .staff-avatar {
       width: 40px; height: 40px; border-radius: 50%;
       background: var(--blue-dim); border: 1px solid rgba(79,124,255,0.3);
@@ -1378,15 +1391,12 @@ async function toggleAllowAdjust(checked) {
   toast(checked ? 'Manager can now adjust your availability' : 'Manager can no longer schedule you outside your availability');
 }
 
-function openDeleteRequest() {
+async function openDeleteRequest() {
   if (!confirm('Send a request to your manager to delete your data?\\n\\nYour manager will be asked to remove your information. They may contact you to confirm.')) return;
-  // File it as a special time-off-style request so the manager sees it; simplest reliable channel
-  sb.from('time_off_requests').insert({
-    team_id: S.teamId, staff_name: S.name, date: ds(new Date()),
-    reason: '[DATA DELETION REQUEST] Please delete my data', status: 'pending'
-  }).then(() => {
-    toast('Request sent to your manager');
-  });
+  const now = new Date().toISOString();
+  await sb.from('staff_members').update({ deletion_requested_at: now },
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  toast('Request sent to your manager');
 }
 
 function toast(msg, ms=2400) {
@@ -2199,6 +2209,7 @@ async function initManager() {
   await fetchTimeOffRequests();
   renderMgrOverview();
   renderShifts();
+  updateStaffRequestDot();
   setLoading(false);
   showScreen('screen-manager');
   startMgrPolling();
@@ -2212,7 +2223,11 @@ async function fetchBlockedDays() {
 
 async function fetchTimeOffRequests() {
   const res = await sb.from('time_off_requests').select('*', `team_id=eq.${S.teamId}&order=created_at.asc`);
-  S.timeOffRequests = (res.ok && res.data) ? res.data : [];
+  let rows = (res.ok && res.data) ? res.data : [];
+  // One-time cleanup: remove stray deletion-request rows left by the old version
+  const strays = rows.filter(r => (r.reason||'').startsWith('[DATA DELETION REQUEST]'));
+  for (const s of strays) { await sb.from('time_off_requests').delete(`id=eq.${s.id}`); }
+  S.timeOffRequests = rows.filter(r => !(r.reason||'').startsWith('[DATA DELETION REQUEST]'));
 }
 
 async function fetchAllAvail() {
@@ -2284,6 +2299,7 @@ function startMgrPolling() {
     if (S.mgrTab === 'overview') renderMgrOverview();
     if (S.mgrTab === 'rota')     renderShifts();
     if (S.mgrTab === 'staff')    renderStaffListMgr();
+    updateStaffRequestDot();
   }, 15000);
 }
 
@@ -2324,7 +2340,7 @@ function renderMgrOverview() {
       const dstr  = ds(d);
       const avail = S.staffAvail[name]?.[dstr];
       // pending request for this person/day?
-      const req = S.timeOffRequests.find(r => r.staff_name === name && r.date === dstr && r.status === 'pending');
+      const req = S.timeOffRequests.find(r => r.staff_name === name && r.date === dstr && r.status === 'pending' && !(r.reason||'').startsWith('[DATA DELETION REQUEST]'));
       if (req) {
         return `<td class="cell-request">
           <div class="req-tag">⏳ Requested off</div>
@@ -2348,7 +2364,7 @@ function renderMgrOverview() {
 function renderRequestsBanner() {
   const el = document.getElementById('requests-banner');
   if (!el) return;
-  const pending = S.timeOffRequests.filter(r => r.status === 'pending');
+  const pending = S.timeOffRequests.filter(r => r.status === 'pending' && !(r.reason||'').startsWith('[DATA DELETION REQUEST]'));
   if (!pending.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = 'block';
   el.innerHTML = `<div class="req-banner-head">⏳ ${pending.length} time-off request${pending.length!==1?'s':''} pending</div>
@@ -3612,10 +3628,18 @@ function renderStaffListMgr() {
     const days = Object.keys(S.staffAvail[name]||{}).length;
     const dept = staffDepartment(name);
     const code = staffCodeFor(name);
+    const rec = S.staffList.find(s => s.name === name);
+    const wantsDeletion = !!(rec && rec.deletion_requested_at);
     const codeHtml = code
       ? `<span class="code-pill" style="font-size:0.95rem;padding:4px 10px;">${code}</span>`
       : `<button class="btn btn-ghost btn-sm" onclick="generateStaffCode('${encodeURIComponent(name)}')">Generate code</button>`;
-    return `<div class="staff-card" style="flex-wrap:wrap;">
+    const requestBanner = wantsDeletion
+      ? `<div class="del-request-banner">
+           <span>🗑 This person has requested their data be deleted.</span>
+           <button class="btn btn-ghost btn-xs" onclick="dismissDeletionRequest('${encodeURIComponent(name)}')">Dismiss</button>
+         </div>`
+      : '';
+    return `<div class="staff-card ${wantsDeletion?'has-request':''}" style="flex-wrap:wrap;">
       <div class="staff-avatar">${initials}</div>
       <div style="flex:1;min-width:120px;">
         <div class="staff-name">${name}</div>
@@ -3628,8 +3652,35 @@ function renderStaffListMgr() {
         </select>
         <button class="btn btn-danger btn-sm" onclick="deleteStaffMember('${encodeURIComponent(name)}')">✕</button>
       </div>
+      ${requestBanner}
     </div>`;
   }).join('');
+  updateStaffRequestDot();
+}
+
+// Show/hide a red dot on the Staff nav when any deletion request is pending
+function updateStaffRequestDot() {
+  const any = S.staffList.some(s => s.deletion_requested_at);
+  const nav = document.getElementById('mgr-nav-staff');
+  if (!nav) return;
+  let dot = nav.querySelector('.nav-dot');
+  if (any && !dot) {
+    dot = document.createElement('span');
+    dot.className = 'nav-dot';
+    nav.appendChild(dot);
+  } else if (!any && dot) {
+    dot.remove();
+  }
+}
+
+async function dismissDeletionRequest(encName) {
+  const name = decodeURIComponent(encName);
+  await sb.from('staff_members').update({ deletion_requested_at: null },
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  const rec = S.staffList.find(s => s.name === name);
+  if (rec) rec.deletion_requested_at = null;
+  renderStaffListMgr();
+  toast('Request dismissed');
 }
 
 // Generate a 4-digit code unique within this team
