@@ -780,7 +780,28 @@
         </div>
         <button class="btn btn-primary" onclick="saveTeamSettings()">Save Settings</button>
       </div>
+
+      <div class="card" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px;">
+        <div class="t-head">Data &amp; Privacy</div>
+        <div class="t-sub" style="margin:0;">Old personal data (availability, codes, time-off reasons) is kept for 12 months, then cleared. Names, shifts worked and hours are kept as your planning record.</div>
+        <button class="btn btn-ghost" onclick="viewWorkHistory()">📊 View work history (kept records)</button>
+        <button class="btn btn-ghost" onclick="runRetentionCleanup()">🧹 Run data cleanup now (purge 12-month-old data)</button>
+      </div>
+
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
+    </div>
+  </div>
+
+  <!-- Work history view -->
+  <div class="scroll-body" id="mgr-tab-history" style="display:none;">
+    <div class="week-nav">
+      <button class="week-nav-arrow" onclick="switchMgrTab('settings')">‹</button>
+      <span class="week-nav-label">Work History</span>
+      <span style="width:38px;"></span>
+    </div>
+    <div style="padding:8px 14px;">
+      <div class="t-sub">Your kept long-term record: who worked which shifts, and the hours. This survives staff removal and the 12-month cleanup.</div>
+      <div id="history-container" style="margin-top:10px;"></div>
     </div>
   </div>
 
@@ -1093,6 +1114,24 @@
     <button class="btn btn-primary btn-full" style="margin-bottom:8px;" onclick="resolveApplyMode('add')">➕ Add to existing</button>
     <button class="btn btn-danger btn-full" style="margin-bottom:8px;" onclick="resolveApplyMode('replace')">♻ Replace it</button>
     <button class="btn btn-ghost btn-full" onclick="resolveApplyMode('cancel')">Cancel</button>
+  </div>
+</div>
+
+<!-- Delete staff member: remove (keep history) vs full erase -->
+<div class="modal-overlay" id="modal-delete-staff">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Remove <span id="del-staff-name">staff</span></div>
+    <div class="t-sub">Choose how much to delete. Your long-term record keeps only name, shifts worked and hours.</div>
+    <button class="btn btn-primary btn-full" style="margin-bottom:8px;" onclick="confirmRemoveStaff()">
+      Remove — keep work history
+    </button>
+    <div class="t-sub" style="margin:-2px 0 10px;">Deletes their login code, availability, requests and live record. Keeps the name + hours-worked archive for your planning records.</div>
+    <button class="btn btn-danger btn-full" style="margin-bottom:8px;" onclick="confirmEraseStaff()">
+      Full erase — delete everything (GDPR)
+    </button>
+    <div class="t-sub" style="margin:-2px 0 10px;">Permanently deletes ALL their data including the work-history archive. Use this for a "delete my data" request.</div>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-delete-staff')">Cancel</button>
   </div>
 </div>
 
@@ -3639,12 +3678,52 @@ async function confirmAddStaff() {
 
 async function deleteStaffMember(encName) {
   const name = decodeURIComponent(encName);
-  if (!confirm(`Remove ${name}? This deletes their availability and unassigns their shifts.`)) return;
-  setLoading(true, 'Removing…');
-  // remove their availability, assignments, and staff record
-  await sb.from('availability').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
-  await sb.from('shift_assignments').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
-  await sb.from('staff_members').delete(`team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  deleteCtx = { name };
+  document.getElementById('del-staff-name').textContent = name;
+  openModal('modal-delete-staff');
+}
+
+let deleteCtx = { name: '' };
+
+// Archive a staff member's past + present shifts into worked_shifts before any deletion,
+// so the long-term record (name + shifts + hours) survives.
+async function archiveStaffShifts(name) {
+  // gather all shifts this person is assigned to
+  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
+  if (!asg.ok || !asg.data?.length) return;
+  const ids = asg.data.map(a => a.shift_id);
+  // fetch those shifts
+  const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&id=in.(${ids.join(',')})`);
+  if (!shf.ok || !shf.data?.length) return;
+  for (const s of shf.data) {
+    // skip if already archived (same person/date/times)
+    const exists = await sb.from('worked_shifts').select('id',
+      `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}&date=eq.${s.date}&start_time=eq.${s.start_time}&end_time=eq.${s.end_time}`);
+    if (exists.ok && exists.data?.length) continue;
+    const hrs = shiftHours({ start: s.start_time, end: s.end_time });
+    await sb.from('worked_shifts').insert({
+      team_id: S.teamId, staff_name: name, date: s.date, department: s.department,
+      label: s.label, start_time: s.start_time, end_time: s.end_time, hours: Math.round(hrs*100)/100
+    });
+  }
+}
+
+// Remove the live operational data for a person (availability, assignments, requests, record)
+async function wipeStaffOperational(name) {
+  const enc = encodeURIComponent(name);
+  await sb.from('availability').delete(`team_id=eq.${S.teamId}&staff_name=eq.${enc}`);
+  await sb.from('shift_assignments').delete(`team_id=eq.${S.teamId}&staff_name=eq.${enc}`);
+  await sb.from('time_off_requests').delete(`team_id=eq.${S.teamId}&staff_name=eq.${enc}`);
+  await sb.from('staff_members').delete(`team_id=eq.${S.teamId}&name=eq.${enc}`);
+}
+
+// "Remove" — keeps the worked-shifts archive (your business record)
+async function confirmRemoveStaff() {
+  const name = deleteCtx.name;
+  closeModal('modal-delete-staff');
+  setLoading(true, 'Archiving & removing…');
+  await archiveStaffShifts(name);     // preserve name + hours worked
+  await wipeStaffOperational(name);    // remove live personal data
   S.staffList = S.staffList.filter(s => s.name !== name);
   delete S.staffAvail[name];
   await fetchAllAvail();
@@ -3652,7 +3731,25 @@ async function deleteStaffMember(encName) {
   renderStaffListMgr();
   renderMgrOverview();
   renderShifts();
-  toast(`${name} removed`);
+  toast(`${name} removed — work history kept`);
+}
+
+// "Full erase" — GDPR erasure: remove EVERYTHING including the archive
+async function confirmEraseStaff() {
+  const name = deleteCtx.name;
+  if (!confirm(`FULL ERASE: permanently delete ALL of ${name}'s data, including their work-history record? This cannot be undone.`)) return;
+  closeModal('modal-delete-staff');
+  setLoading(true, 'Erasing all data…');
+  await wipeStaffOperational(name);
+  await sb.from('worked_shifts').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
+  S.staffList = S.staffList.filter(s => s.name !== name);
+  delete S.staffAvail[name];
+  await fetchAllAvail();
+  setLoading(false);
+  renderStaffListMgr();
+  renderMgrOverview();
+  renderShifts();
+  toast(`${name} fully erased`);
 }
 
 async function setStaffDept(encName, dept) {
@@ -3673,7 +3770,7 @@ async function setStaffDept(encName, dept) {
 /* ── Manager tabs ── */
 function switchMgrTab(tab) {
   S.mgrTab = tab;
-  ['overview','rota','patterns','staff','settings'].forEach(t => {
+  ['overview','rota','patterns','staff','settings','history'].forEach(t => {
     const el = document.getElementById(`mgr-tab-${t}`);
     if (el) el.style.display = t === tab ? 'block' : 'none';
     const nav = document.getElementById(`mgr-nav-${t}`);
@@ -3684,6 +3781,54 @@ function switchMgrTab(tab) {
   if (tab === 'rota')     renderShifts();
   if (tab === 'patterns') { renderPresets(); renderPatterns(); }
   if (tab === 'staff')    renderStaffListMgr();
+  if (tab === 'history')  renderWorkHistory();
+}
+
+/* ── Retention & work history (Stage 2) ── */
+async function runRetentionCleanup() {
+  if (!confirm('Run data cleanup now?\\n\\nThis archives shifts older than 12 months into your work history (name + hours kept), then clears the old availability, time-off reasons and past shifts. This cannot be undone.')) return;
+  setLoading(true, 'Running cleanup…');
+  // Call the database retention function (archives, then purges)
+  const res = await sb.rpc('run_retention', { months_to_keep: 12 });
+  setLoading(false);
+  if (res && res.ok) {
+    await fetchAllAvail();
+    renderMgrOverview();
+    toast('Cleanup complete — old data cleared, work history kept');
+  } else {
+    toast('Cleanup could not run — check the SQL function is installed', 4000);
+  }
+}
+
+function viewWorkHistory() { switchMgrTab('history'); }
+
+async function renderWorkHistory() {
+  const c = document.getElementById('history-container');
+  c.innerHTML = '<div class="t-sub">Loading…</div>';
+  const res = await sb.from('worked_shifts').select('*', `team_id=eq.${S.teamId}&order=date.desc`);
+  if (!res.ok || !res.data?.length) {
+    c.innerHTML = '<div class="empty-state"><div class="ei">📊</div><div>No work history yet.</div><div class="et">Records appear here when staff are removed or data cleanup runs.</div></div>';
+    return;
+  }
+  // Group by staff name, total hours
+  const byName = {};
+  res.data.forEach(r => {
+    (byName[r.staff_name] ||= { rows: [], hours: 0 });
+    byName[r.staff_name].rows.push(r);
+    byName[r.staff_name].hours += Number(r.hours || 0);
+  });
+  let html = '';
+  sortNames(Object.keys(byName)).forEach(name => {
+    const g = byName[name];
+    html += `<div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="staff-name">${name}</div>
+        <div style="font-weight:800;color:var(--blue);">${fmtHours(g.hours)} total</div>
+      </div>
+      <div class="t-sub" style="margin-top:4px;">${g.rows.length} shift${g.rows.length!==1?'s':''} on record</div>
+    </div>`;
+  });
+  c.innerHTML = html;
 }
 
 /* ── Manager settings ── */
