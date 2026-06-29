@@ -1156,6 +1156,27 @@
 <script>
 const SUPABASE_URL  = 'https://zmoytopjameydbsdbyky.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
+
+// ── Stage 3a: authentication gateway ──
+// When true, manager/staff login is verified by the secure "login" Edge Function
+// (PIN & staff codes checked server-side, never sent to the browser).
+// Leave false until the function is deployed; set true to switch on. Reversible.
+const USE_LOGIN_FUNCTION = false;
+let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
+
+async function callLoginFunction(body) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON}`, 'apikey': SUPABASE_ANON },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => null);
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: 'Connection error' } };
+  }
+}
 </script>
 
 <script>
@@ -1513,15 +1534,27 @@ async function confirmSetup() {
       if (!code) { err('setup-error','Please enter your team code'); setLoading(false); return; }
       if (!pin)  { err('setup-error','Please enter your manager PIN'); setLoading(false); return; }
 
-      const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
-      if (!res.ok || !res.data?.length) { err('setup-error','Team code not found'); setLoading(false); return; }
-      const team = res.data[0];
-      if (pin !== team.manager_pin) { err('setup-error','Incorrect manager PIN'); setLoading(false); return; }
+      if (USE_LOGIN_FUNCTION) {
+        // Secure path: PIN checked server-side, never read into the browser
+        const lr = await callLoginFunction({ mode: 'manager', teamCode: code, pin });
+        if (!lr.ok || !lr.data?.ok) { err('setup-error', lr.data?.error || 'Login failed'); setLoading(false); return; }
+        SESSION_TOKEN = lr.data.token;
+        const team = lr.data.team;
+        S.mode = 'manager'; S.name = name || 'Manager'; S.teamId = team.id;
+        S.teamCode = team.team_code; S.teamName = team.team_name; S.managerPin = '';
+        persist();
+        await initManager();
+      } else {
+        const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
+        if (!res.ok || !res.data?.length) { err('setup-error','Team code not found'); setLoading(false); return; }
+        const team = res.data[0];
+        if (pin !== team.manager_pin) { err('setup-error','Incorrect manager PIN'); setLoading(false); return; }
 
-      S.mode = 'manager'; S.name = name || 'Manager'; S.teamId = team.id;
-      S.teamCode = code; S.teamName = team.team_name; S.managerPin = pin;
-      persist();
-      await initManager();
+        S.mode = 'manager'; S.name = name || 'Manager'; S.teamId = team.id;
+        S.teamCode = code; S.teamName = team.team_name; S.managerPin = pin;
+        persist();
+        await initManager();
+      }
 
     } else {
       // STAFF LOGIN BY CODE: team code + personal 4-digit code
@@ -1530,17 +1563,24 @@ async function confirmSetup() {
       if (!code) { err('setup-error','Please enter your team code'); setLoading(false); return; }
       if (!staffCode || staffCode.length !== 4) { err('setup-error','Enter your 4-digit code'); setLoading(false); return; }
 
-      const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
-      if (!res.ok || !res.data?.length) { err('setup-error','Team code not found — check with your manager'); setLoading(false); return; }
-      const team = res.data[0];
-
-      // Look up the staff member whose code matches
-      const sm = await sb.from('staff_members').select('*', `team_id=eq.${team.id}&staff_code=eq.${staffCode}`);
-      if (!sm.ok || !sm.data?.length) { err('setup-error','That code is not recognised for this team'); setLoading(false); return; }
-      const member = sm.data[0];
+      let team, member;
+      if (USE_LOGIN_FUNCTION) {
+        // Secure path: staff code checked server-side, never read into the browser
+        const lr = await callLoginFunction({ mode: 'staff', teamCode: code, staffCode });
+        if (!lr.ok || !lr.data?.ok) { err('setup-error', lr.data?.error || 'Login failed'); setLoading(false); return; }
+        SESSION_TOKEN = lr.data.token;
+        team = lr.data.team; member = lr.data.member;
+      } else {
+        const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
+        if (!res.ok || !res.data?.length) { err('setup-error','Team code not found — check with your manager'); setLoading(false); return; }
+        team = res.data[0];
+        const sm = await sb.from('staff_members').select('*', `team_id=eq.${team.id}&staff_code=eq.${staffCode}`);
+        if (!sm.ok || !sm.data?.length) { err('setup-error','That code is not recognised for this team'); setLoading(false); return; }
+        member = sm.data[0];
+      }
 
       S.mode = 'staff'; S.name = member.name; S.teamId = team.id;
-      S.teamCode = code; S.teamName = team.team_name;
+      S.teamCode = team.team_code || code; S.teamName = team.team_name;
       S.staffMemberId = member.id;
       S.consentedAt = member.consented_at || null;
       S.allowAvailAdjust = !!member.allow_avail_adjust;
