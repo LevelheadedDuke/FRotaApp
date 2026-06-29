@@ -340,6 +340,10 @@
     .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); }
     .empty-state .ei { font-size: 2.8rem; margin-bottom: 10px; }
     .empty-state .et { font-size: 0.88rem; margin-top: 4px; }
+    .privacy-body h4 { font-size: 0.9rem; margin: 16px 0 4px; color: var(--text); }
+    .privacy-body p { font-size: 0.84rem; line-height: 1.5; color: var(--text-dim, #c8cdd6); margin: 4px 0; }
+    .privacy-body ul { margin: 4px 0 4px 2px; padding-left: 18px; }
+    .privacy-body li { font-size: 0.84rem; line-height: 1.5; margin: 3px 0; }
     .info-box {
       background: var(--blue-dim); border: 1px solid rgba(79,124,255,0.2);
       border-radius: var(--r-sm); padding: 12px 14px;
@@ -592,6 +596,30 @@
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
 </div>
 
+<!-- ════════ PRIVACY NOTICE ════════ -->
+<div id="screen-privacy" class="screen">
+  <div class="topbar">
+    <div>
+      <div class="topbar-brand">Privacy Notice</div>
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:1px;" id="privacy-sub">Please read before continuing</div>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" id="privacy-close-btn" onclick="closePrivacyView()" title="Close" style="display:none;">✕</button>
+    </div>
+  </div>
+  <div class="scroll-body" style="padding:16px 16px 30px;">
+    <div class="privacy-body" id="privacy-body"></div>
+    <div id="privacy-consent-block" style="margin-top:18px;">
+      <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:0.86rem;line-height:1.4;">
+        <input type="checkbox" id="privacy-agree" style="margin-top:3px;flex-shrink:0;width:18px;height:18px;">
+        <span>I have read and understood this privacy notice, and I agree to my information being used as described.</span>
+      </label>
+      <button class="btn btn-primary btn-full" style="margin-top:14px;" onclick="acceptPrivacy()">Agree &amp; Continue</button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="declinePrivacy()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════════ STAFF APP ════════ -->
 <div id="screen-staff" class="screen">
   <div class="topbar">
@@ -634,6 +662,17 @@
       </div>
       <button class="add-btn" onclick="openAddSlot()">＋ Add Available Time</button>
       <button class="hol-btn" id="hol-btn" onclick="toggleHoliday()">🏖 Mark as Holiday / Day Off</button>
+    </div>
+
+    <div class="card" style="margin:14px 0 0;">
+      <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:0.84rem;line-height:1.4;">
+        <input type="checkbox" id="allow-adjust-toggle" style="margin-top:2px;flex-shrink:0;width:18px;height:18px;" onchange="toggleAllowAdjust(this.checked)">
+        <span>Allow my manager to adjust my availability (schedule me outside the times I've set). You can turn this off anytime.</span>
+      </label>
+    </div>
+    <div style="text-align:center;margin-top:14px;">
+      <button class="btn btn-ghost btn-sm" onclick="showPrivacyNotice('view')">📄 View privacy notice</button>
+      <button class="btn btn-ghost btn-sm" onclick="openDeleteRequest()">🗑 Request my data be deleted</button>
     </div>
     <div style="height:20px;"></div>
   </div>
@@ -1110,6 +1149,9 @@ const S = {
   staffList: [],        // [ { name } ]
   blockedDays: {},      // { 'YYYY-MM-DD': true }
   timeOffRequests: [],  // [ { id, staff_name, date, reason, status } ]
+  staffMemberId: null,
+  consentedAt: null,
+  allowAvailAdjust: false,
   presets: [],          // shift presets
   patterns: [],         // [ { id, label, shifts:[...] } ]
   shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
@@ -1131,7 +1173,8 @@ const S = {
 function persist() {
   sessionStorage.setItem('rota_session', JSON.stringify({
     mode: S.mode, name: S.name, teamId: S.teamId,
-    teamCode: S.teamCode, teamName: S.teamName, managerPin: S.managerPin
+    teamCode: S.teamCode, teamName: S.teamName, managerPin: S.managerPin,
+    staffMemberId: S.staffMemberId, consentedAt: S.consentedAt, allowAvailAdjust: S.allowAvailAdjust
   }));
 }
 function loadSession() {
@@ -1201,6 +1244,112 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
+
+/* ════════════════════════════════════════
+   PRIVACY NOTICE (Stage 1)
+═════════════════════════════════════════ */
+function privacyNoticeHtml() {
+  const team = S.teamName || 'your team';
+  return `
+    <p style="color:var(--muted);font-size:0.82rem;">Last updated: when you read this. This notice explains what ${team} stores about you in the Rota app and how it's used.</p>
+
+    <h4>Who holds your information</h4>
+    <p>The owner of ${team} (the business you work for) is responsible for your information as the "data controller". They decide how it's used and you can contact them to ask about it (see "Your rights" below).</p>
+
+    <h4>What we store</h4>
+    <ul>
+      <li>Your <strong>name</strong>.</li>
+      <li>Your <strong>4-digit login code</strong> (so you can sign in).</li>
+      <li>The <strong>availability</strong> you enter (the times/days you say you can work, days off, and any "standard week" you save).</li>
+      <li>The <strong>shifts</strong> you're given and the <strong>hours</strong> they add up to.</li>
+      <li>Any <strong>time-off requests</strong> you make on blocked days, including a reason if you add one.</li>
+    </ul>
+
+    <h4>Why we store it</h4>
+    <p>To build and run the staff rota — to know when you can work, to schedule your shifts, to track hours, and to manage time off. This is necessary for running the business and managing your work.</p>
+
+    <h4>Who can see it</h4>
+    <p>Your manager can see your availability, shifts, hours and requests. Your <strong>colleagues can see each other's names and scheduled shifts</strong> through the team rota view (so everyone knows who they're working with). Colleagues cannot see your login code or your private availability notes.</p>
+
+    <h4>Where it's kept</h4>
+    <p>Your information is stored securely on servers located in the <strong>UK/EU</strong>, provided by Supabase (the app's database host) acting on the business's instructions.</p>
+
+    <h4>How long we keep it</h4>
+    <p>Day-to-day information (your availability, login code, time-off reasons, saved standard week) is kept for up to <strong>12 months</strong>, then deleted automatically. A limited record of your <strong>name, the shifts you worked, and the hours</strong> is kept longer as a business record, to help plan staffing and hours in future.</p>
+
+    <h4>Your rights</h4>
+    <p>You can ask to see what's held about you, to correct it, or to have it deleted. To make a request, contact your manager directly — by <strong>WhatsApp, phone, or in person</strong> — or use the "Request my data be deleted" option in the app. We'll handle your request as required by UK/EU data protection law.</p>
+
+    <h4>Your control over availability</h4>
+    <p>By default, your manager <strong>cannot</strong> schedule you outside the availability you set. If you choose, you can switch on "Allow my manager to adjust my availability" in the app — and you can switch it back off at any time.</p>
+  `;
+}
+
+let privacyMode = 'consent';  // 'consent' (first login) | 'view' (read-only later)
+
+function showPrivacyNotice(mode) {
+  privacyMode = mode;
+  document.getElementById('privacy-body').innerHTML = privacyNoticeHtml();
+  const consentBlock = document.getElementById('privacy-consent-block');
+  const closeBtn = document.getElementById('privacy-close-btn');
+  const sub = document.getElementById('privacy-sub');
+  if (mode === 'consent') {
+    consentBlock.style.display = 'block';
+    closeBtn.style.display = 'none';
+    sub.textContent = 'Please read and agree before continuing';
+    document.getElementById('privacy-agree').checked = false;
+  } else {
+    consentBlock.style.display = 'none';
+    closeBtn.style.display = 'flex';
+    sub.textContent = 'Your privacy information';
+  }
+  showScreen('screen-privacy');
+}
+
+async function acceptPrivacy() {
+  if (!document.getElementById('privacy-agree').checked) {
+    toast('Please tick the box to confirm you agree');
+    return;
+  }
+  setLoading(true, 'Saving…');
+  const now = new Date().toISOString();
+  await sb.from('staff_members').update({ consented_at: now },
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  S.consentedAt = now;
+  persist();
+  setLoading(false);
+  await initStaff();
+}
+
+function declinePrivacy() {
+  // Can't use the app without accepting — return to splash
+  doLogout();
+}
+
+function closePrivacyView() {
+  // Returning from a read-only view → back to the staff app
+  showScreen('screen-staff');
+}
+
+async function toggleAllowAdjust(checked) {
+  S.allowAvailAdjust = checked;
+  await sb.from('staff_members').update({ allow_avail_adjust: checked },
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  persist();
+  toast(checked ? 'Manager can now adjust your availability' : 'Manager can no longer schedule you outside your availability');
+}
+
+function openDeleteRequest() {
+  if (!confirm('Send a request to your manager to delete your data?\\n\\nYour manager will be asked to remove your information. They may contact you to confirm.')) return;
+  // File it as a special time-off-style request so the manager sees it; simplest reliable channel
+  sb.from('time_off_requests').insert({
+    team_id: S.teamId, staff_name: S.name, date: ds(new Date()),
+    reason: '[DATA DELETION REQUEST] Please delete my data', status: 'pending'
+  }).then(() => {
+    toast('Request sent to your manager');
+  });
+}
+
 function toast(msg, ms=2400) {
   const el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('show');
@@ -1343,7 +1492,13 @@ async function confirmSetup() {
 
       S.mode = 'staff'; S.name = member.name; S.teamId = team.id;
       S.teamCode = code; S.teamName = team.team_name;
+      S.staffMemberId = member.id;
+      S.consentedAt = member.consented_at || null;
+      S.allowAvailAdjust = !!member.allow_avail_adjust;
       persist();
+      setLoading(false);
+      // First-time staff must read & accept the privacy notice before entering
+      if (!S.consentedAt) { showPrivacyNotice('consent'); return; }
       await initStaff();
     }
   } catch(e) {
@@ -1368,11 +1523,25 @@ async function initStaff() {
   await fetchBlockedDays();
   await fetchMyRequests();
   await fetchStandardWeek();
+  await refreshMyPermission();
   renderStaffWeekStrip();
   renderDayPanel();
+  const adjustToggle = document.getElementById('allow-adjust-toggle');
+  if (adjustToggle) adjustToggle.checked = !!S.allowAvailAdjust;
   setLoading(false);
   showScreen('screen-staff');
   subscribeRealtime();
+}
+
+// Re-read this staff member's consent + permission (in case it changed elsewhere)
+async function refreshMyPermission() {
+  const res = await sb.from('staff_members').select('consented_at,allow_avail_adjust',
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  if (res.ok && res.data?.[0]) {
+    S.consentedAt = res.data[0].consented_at || null;
+    S.allowAvailAdjust = !!res.data[0].allow_avail_adjust;
+    persist();
+  }
 }
 
 async function fetchPatternsForStaff() {
@@ -2291,16 +2460,24 @@ async function applyPatternToCell(name, dstr) {
     return;
   }
 
-  // AVAILABILITY WARNING: check each shift against what the person said they can work
+  // AVAILABILITY RULE: check each shift against stated availability.
   const av = S.staffAvail[name]?.[dstr];
   const outside = pat.shifts.filter(s => !timeOverlapsAvail(name, dstr, s.start_time.slice(0,5), s.end_time.slice(0,5)));
   if (outside.length) {
+    if (!staffAllowsAdjust(name)) {
+      S.pickedPatternId = null;
+      renderPatternBar();
+      renderShifts();
+      const why = (av && av.holiday) ? `${name} has marked that day off` : `${name} isn't available for some of those times`;
+      toast(`Can't apply: ${why}, and hasn't allowed availability adjustments.`, 4200);
+      return;
+    }
     let msg;
     if (av && av.holiday) {
-      msg = `${name} marked ${dstr} as a day off. Apply “${pat.label}” anyway?`;
+      msg = `${name} marked ${dstr} as a day off (but allows adjustments). Apply “${pat.label}” anyway?`;
     } else {
       const list = outside.map(s => fmtRange(s.start_time, s.end_time)).join(', ');
-      msg = `${name} hasn't said they're available for ${list}. Apply “${pat.label}” anyway?`;
+      msg = `${name} hasn't said they're available for ${list} (but allows adjustments). Apply “${pat.label}” anyway?`;
     }
     if (!confirm(msg)) {
       S.pickedPatternId = null;
@@ -2345,6 +2522,12 @@ function findShiftById(shiftId) {
 function staffDepartment(name) {
   const rec = S.staffList.find(s => s.name === name);
   return (rec && rec.department) ? rec.department : 'foh';
+}
+
+// Has this staff member allowed the manager to schedule them outside their availability?
+function staffAllowsAdjust(name) {
+  const rec = S.staffList.find(s => s.name === name);
+  return !!(rec && rec.allow_avail_adjust);
 }
 
 function shiftsForStaffDay(name, dstr) {
@@ -2893,12 +3076,21 @@ async function confirmShift() {
     return;
   }
 
-  // Soft warning if outside availability (still allowed)
+  // Availability rule: a manager may only schedule outside stated availability
+  // if the staff member has switched ON "allow my manager to adjust my availability".
   if (!timeOverlapsAvail(name, date, start, end)) {
     const av = S.staffAvail[name]?.[date];
+    if (!staffAllowsAdjust(name)) {
+      const why = (av && av.holiday)
+        ? `${name} has marked this day as off`
+        : `${name} hasn't said they're available then`;
+      err('shift-modal-error', `${why}, and hasn't allowed availability adjustments. Ask them to enable "Allow my manager to adjust my availability" first.`);
+      return;
+    }
+    // permitted → still confirm, as a courtesy check
     const msg = (av && av.holiday)
-      ? `${name} marked this day as off. Assign anyway?`
-      : `${name} hasn't said they're available then. Assign anyway?`;
+      ? `${name} marked this day off (but allows adjustments). Assign anyway?`
+      : `${name} hasn't said they're available then (but allows adjustments). Assign anyway?`;
     if (!confirm(msg)) return;
   }
 
@@ -3086,35 +3278,34 @@ async function exportRotaXlsx() {
   const data = await gatherRota(weeks);
 
   const wb = XLSX.utils.book_new();
-  // One SHEET per department; within it, every week stacked.
+  // One SHEET per department PER week.
   let sheetsAdded = 0;
+  const usedNames = {};
   DEPARTMENTS.forEach(dept => {
-    const hasAny = data.some(wk => {
-      const sec = wk.sections.find(s => s.title === dept.title);
-      return sec && sec.rows.length;
-    });
-    if (!hasAny) return;
-
-    const aoa = [];
-    aoa.push([`${S.teamName} — ${dept.title}`]);
-    aoa.push([]);
-    let maxDays = 7;
     data.forEach(wk => {
       const sec = wk.sections.find(s => s.title === dept.title);
-      if (!sec || !sec.rows.length) return;
+      if (!sec || !sec.rows.length) return;   // skip empty department-weeks
+
       const headerDays = wk.days.map(d => `${DAY_S[d.getDay()]} ${d.getDate()} ${MON_S[d.getMonth()]}`);
-      maxDays = headerDays.length;
+      const aoa = [];
+      aoa.push([`${S.teamName} — ${dept.title}`]);
       aoa.push([`Week of ${weekLabel(wk.mon)}`]);
+      aoa.push([]);
       aoa.push(['Staff', ...headerDays, 'Hours']);
       sec.rows.forEach(r => aoa.push([r.name, ...r.cells, hoursLabel(r.hours)]));
-      aoa.push([]);
-    });
 
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{wch:16}, ...Array.from({length:maxDays},()=>({wch:16})), {wch:9}];
-    let nm = dept.title.replace(/[\\/?*\[\]:]/g,'-').slice(0,28);
-    XLSX.utils.book_append_sheet(wb, ws, nm || 'Dept');
-    sheetsAdded++;
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:16}, ...headerDays.map(()=>({wch:16})), {wch:9}];
+
+      // Sheet name: "Dept · DD Mon" (Excel limit 31 chars, must be unique & no special chars)
+      const wkShort = ds(wk.mon).slice(5);  // MM-DD
+      let base = `${dept.title} ${wkShort}`.replace(/[\\/?*\[\]:]/g,'-').slice(0,28);
+      let nm = base, i = 2;
+      while (usedNames[nm]) { nm = `${base.slice(0,26)}-${i}`; i++; }
+      usedNames[nm] = true;
+      XLSX.utils.book_append_sheet(wb, ws, nm || 'Sheet');
+      sheetsAdded++;
+    });
   });
   if (!sheetsAdded) {
     const ws = XLSX.utils.aoa_to_sheet([[`${S.teamName} — Rota`], ['No shifts scheduled in this date range.']]);
