@@ -1161,14 +1161,14 @@ const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
 // When true, manager/staff login is verified by the secure "login" Edge Function
 // (PIN & staff codes checked server-side, never sent to the browser).
 // Leave false until the function is deployed; set true to switch on. Reversible.
-const USE_LOGIN_FUNCTION = false;
+const USE_LOGIN_FUNCTION = true;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
 
 // ── Stage 3b: data gateway ──
 // When true, data reads/writes go through the token-verified "data" Edge Function.
 // Migrated in groups; start with availability. Leave false until the data
 // function is deployed AND the login function is on (it provides the token).
-const USE_DATA_FUNCTION = false;
+const USE_DATA_FUNCTION = true;
 
 async function callLoginFunction(body) {
   try {
