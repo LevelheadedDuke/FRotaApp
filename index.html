@@ -1161,14 +1161,14 @@ const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
 // When true, manager/staff login is verified by the secure "login" Edge Function
 // (PIN & staff codes checked server-side, never sent to the browser).
 // Leave false until the function is deployed; set true to switch on. Reversible.
-const USE_LOGIN_FUNCTION = true;
+const USE_LOGIN_FUNCTION = false;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
 
 // ── Stage 3b: data gateway ──
 // When true, data reads/writes go through the token-verified "data" Edge Function.
 // Migrated in groups; start with availability. Leave false until the data
 // function is deployed AND the login function is on (it provides the token).
-const USE_DATA_FUNCTION = true;
+const USE_DATA_FUNCTION = false;
 
 async function callLoginFunction(body) {
   try {
@@ -1199,6 +1199,57 @@ async function callData(op, extra = {}) {
     return { ok: r.ok, status: r.status, data };
   } catch (e) {
     return { ok: false, status: 0, data: { error: 'Connection error' } };
+  }
+}
+
+// ── Shift read/write helpers (route through data function when enabled) ──
+// Each returns the same shape the old direct calls produced, so callers are simple.
+async function getShifts(from, to) {
+  if (USE_DATA_FUNCTION) {
+    const res = await callData('shifts_get', { from, to });
+    if (res.ok && res.data?.ok) return { shifts: res.data.shifts || [], assignments: res.data.assignments || [] };
+    return { shifts: [], assignments: [] };
+  }
+  let filter = `team_id=eq.${S.teamId}`;
+  if (from) filter += `&date=gte.${from}`;
+  if (to)   filter += `&date=lte.${to}`;
+  filter += `&order=date.asc,start_time.asc`;
+  const shf = await sb.from('shifts').select('*', filter);
+  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}`);
+  return { shifts: (shf.ok && shf.data) ? shf.data : [], assignments: (asg.ok && asg.data) ? asg.data : [] };
+}
+
+async function insertShift(row, assignees) {
+  if (USE_DATA_FUNCTION) {
+    const res = await callData('shift_insert', { row, assignees: assignees || [] });
+    return (res.ok && res.data?.ok) ? res.data.id : null;
+  }
+  const res = await sb.from('shifts').insert(row);
+  const shiftId = (res.ok && res.data?.[0]) ? res.data[0].id : null;
+  if (shiftId && assignees && assignees.length) {
+    for (const name of assignees) {
+      await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
+    }
+  }
+  return shiftId;
+}
+
+async function updateShift(id, changes) {
+  if (USE_DATA_FUNCTION) { await callData('shift_update', { id, changes }); return; }
+  await sb.from('shifts').update(changes, `id=eq.${id}`);
+}
+
+async function deleteShiftById(id) {
+  if (USE_DATA_FUNCTION) { await callData('shift_delete', { id }); return; }
+  await sb.from('shift_assignments').delete(`shift_id=eq.${id}`);
+  await sb.from('shifts').delete(`id=eq.${id}`);
+}
+
+async function setAssignees(shiftId, assignees) {
+  if (USE_DATA_FUNCTION) { await callData('assign_set', { shift_id: shiftId, assignees: assignees || [] }); return; }
+  await sb.from('shift_assignments').delete(`shift_id=eq.${shiftId}`);
+  for (const name of (assignees || [])) {
+    await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
   }
 }
 </script>
@@ -2169,22 +2220,19 @@ async function loadStaffRota() {
   const first = days[0], last = days[6];
 
   // Fetch this week's shifts + assignments + the staff list (for departments)
-  const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&date=gte.${first}&date=lte.${last}&order=start_time.asc`);
-  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}`);
+  const { shifts: shfData, assignments: asgData } = await getShifts(first, last);
   const st  = await sb.from('staff_members').select('*', `team_id=eq.${S.teamId}&order=name.asc`);
 
   const asgByShift = {};
-  if (asg.ok && asg.data) asg.data.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
+  asgData.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
 
   staffRotaData.shifts = {};
-  if (shf.ok && shf.data) {
-    shf.data.forEach(s => {
-      (staffRotaData.shifts[s.date] ||= []).push({
-        id: s.id, label: s.label||'', start: s.start_time, end: s.end_time,
-        department: s.department || 'foh', assigned: asgByShift[s.id] || []
-      });
+  shfData.forEach(s => {
+    (staffRotaData.shifts[s.date] ||= []).push({
+      id: s.id, label: s.label||'', start: s.start_time, end: s.end_time,
+      department: s.department || 'foh', assigned: asgByShift[s.id] || []
     });
-  }
+  });
   staffRotaData.staffList = (st.ok && st.data) ? st.data : [];
   renderStaffRota();
 }
@@ -2370,21 +2418,18 @@ async function fetchAllAvail() {
   }
 
   // Scheduled shifts + assignments
-  const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
-  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}`);
+  const { shifts: shfData, assignments: asgData } = await getShifts();
   const asgByShift = {};
-  if (asg.ok && asg.data) asg.data.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
+  asgData.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
   S.shifts = {};
-  if (shf.ok && shf.data) {
-    shf.data.forEach(s => {
-      (S.shifts[s.date] ||= []).push({
-        id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
-        needed: s.staff_needed || 1, department: s.department || null,
-        patternName: s.pattern_name || null, patternGroup: s.pattern_group || null,
-        assigned: asgByShift[s.id] || []
-      });
+  shfData.forEach(s => {
+    (S.shifts[s.date] ||= []).push({
+      id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
+      needed: s.staff_needed || 1, department: s.department || null,
+      patternName: s.pattern_name || null, patternGroup: s.pattern_group || null,
+      assigned: asgByShift[s.id] || []
     });
-  }
+  });
 }
 
 function startMgrPolling() {
@@ -2643,15 +2688,13 @@ async function applyPatternToCell(name, dstr) {
   const groupId = `${pat.id}-${dstr}-${name}-${Date.now()}`;
   setLoading(true, 'Applying pattern…');
   for (const s of pat.shifts) {
-    const res = await sb.from('shifts').insert({
+    const shiftId = await insertShift({
       team_id: S.teamId, date: dstr, label: s.label, department: dept,
       start_time: s.start_time, end_time: s.end_time, staff_needed: 1,
       pattern_name: pat.label, pattern_group: groupId
-    });
-    if (res.ok && res.data?.[0]) {
-      const shiftId = res.data[0].id;
+    }, [name]);
+    if (shiftId) {
       (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, patternName: pat.label, patternGroup: groupId, assigned: [name] });
-      await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
     }
   }
   setLoading(false);
@@ -2936,10 +2979,8 @@ async function confirmEditShift() {
     return;
   }
 
-  await sb.from('shifts').update(
-    { label: label || null, start_time: start, end_time: end, department: editShiftCtx.dept },
-    `id=eq.${editShiftCtx.id}`
-  );
+  await updateShift(editShiftCtx.id,
+    { label: label || null, start_time: start, end_time: end, department: editShiftCtx.dept });
   const found = findShiftById(editShiftCtx.id);
   if (found) {
     found.sh.label = label; found.sh.start = start; found.sh.end = end; found.sh.department = editShiftCtx.dept;
@@ -3004,7 +3045,7 @@ function editGroupShift(shiftId) {
 // Clear the pattern tag from a set of shifts so they display individually
 async function ungroupShifts(shifts) {
   for (const sh of shifts) {
-    await sb.from('shifts').update({ pattern_name: null, pattern_group: null }, `id=eq.${sh.id}`);
+    await updateShift(sh.id, { pattern_name: null, pattern_group: null });
     sh.patternName = null;
     sh.patternGroup = null;
   }
@@ -3084,14 +3125,12 @@ async function confirmPatternPick() {
   setLoading(true, 'Adding shifts…');
   for (const i of checks) {
     const s = pat.shifts[i];
-    const res = await sb.from('shifts').insert({
+    const shiftId = await insertShift({
       team_id: S.teamId, date: dstr, label: s.label, department: dept,
       start_time: s.start_time, end_time: s.end_time, staff_needed: 1
-    });
-    if (res.ok && res.data?.[0]) {
-      const shiftId = res.data[0].id;
+    }, [name]);
+    if (shiftId) {
       (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name] });
-      await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
     }
   }
   setLoading(false);
@@ -3117,10 +3156,7 @@ async function saveShiftAssignments(shiftId) {
   let sh = null;
   for (const dstr in S.shifts) { const f = S.shifts[dstr].find(x=>x.id===shiftId); if (f){sh=f;break;} }
   if (!sh) return;
-  await sb.from('shift_assignments').delete(`shift_id=eq.${shiftId}`);
-  for (const name of sh.assigned.filter(Boolean)) {
-    await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
-  }
+  await setAssignees(shiftId, sh.assigned.filter(Boolean));
 }
 
 /* ── Add / edit a single shift ── */
@@ -3245,15 +3281,13 @@ async function confirmShift() {
     if (!confirm(msg)) return;
   }
 
-  const res = await sb.from('shifts').insert({
+  const shiftId = await insertShift({
     team_id: S.teamId, date, label: label || null, department: shiftFormDept,
     start_time: start, end_time: end, staff_needed: 1
-  });
-  if (res.ok && res.data?.[0]) {
-    const shiftId = res.data[0].id;
+  }, [name]);
+  if (shiftId) {
     const sh = { id: shiftId, label, start, end, needed: 1, department: shiftFormDept, assigned: [name] };
     (S.shifts[date] ||= []).push(sh);
-    await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
   }
   closeModal('modal-shift');
   renderShifts();
@@ -3261,7 +3295,7 @@ async function confirmShift() {
 }
 
 async function deleteShift(shiftId, dstr, opts = {}) {
-  await sb.from('shifts').delete(`id=eq.${shiftId}`);
+  await deleteShiftById(shiftId);
   if (S.shifts[dstr]) S.shifts[dstr] = S.shifts[dstr].filter(s => s.id !== shiftId);
   if (!opts.quiet) { renderShifts(); toast('Shift removed'); }
 }
@@ -3312,20 +3346,17 @@ async function gatherRota(weekStarts) {
   const lastEnd = new Date(weekStarts[weekStarts.length-1]); lastEnd.setDate(lastEnd.getDate()+6);
   const last = ds(lastEnd);
 
-  const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&date=gte.${first}&date=lte.${last}&order=date.asc,start_time.asc`);
-  const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}`);
+  const { shifts: shfData, assignments: asgData } = await getShifts(first, last);
   const asgByShift = {};
-  if (asg.ok && asg.data) asg.data.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
+  asgData.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
 
   const byDate = {};
-  if (shf.ok && shf.data) {
-    shf.data.forEach(s => {
-      (byDate[s.date] ||= []).push({
-        id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
-        department: s.department || 'foh', assigned: asgByShift[s.id] || []
-      });
+  shfData.forEach(s => {
+    (byDate[s.date] ||= []).push({
+      id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
+      department: s.department || 'foh', assigned: asgByShift[s.id] || []
     });
-  }
+  });
 
   // Build per-week: for each week, list staff rows (per department) x days with shift text
   return weekStarts.map(mon => {
@@ -3687,13 +3718,13 @@ async function confirmApplyPattern() {
     if (which === 'weekends' && dow !== 0 && dow !== 6) continue;
     const dstr = ds(d);
     for (const s of pat.shifts) {
-      const res = await sb.from('shifts').insert({
+      const newId = await insertShift({
         team_id: S.teamId, date: dstr, label: s.label,
         start_time: s.start_time, end_time: s.end_time, staff_needed: 1
-      });
-      if (res.ok && res.data?.[0]) {
+      }, []);
+      if (newId) {
         (S.shifts[dstr] ||= []).push({
-          id: res.data[0].id, label: s.label, start: s.start_time, end: s.end_time,
+          id: newId, label: s.label, start: s.start_time, end: s.end_time,
           needed: 1, assigned: []
         });
         count++;
