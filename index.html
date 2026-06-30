@@ -1161,8 +1161,14 @@ const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
 // When true, manager/staff login is verified by the secure "login" Edge Function
 // (PIN & staff codes checked server-side, never sent to the browser).
 // Leave false until the function is deployed; set true to switch on. Reversible.
-const USE_LOGIN_FUNCTION = true;
+const USE_LOGIN_FUNCTION = false;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
+
+// ── Stage 3b: data gateway ──
+// When true, data reads/writes go through the token-verified "data" Edge Function.
+// Migrated in groups; start with availability. Leave false until the data
+// function is deployed AND the login function is on (it provides the token).
+const USE_DATA_FUNCTION = false;
 
 async function callLoginFunction(body) {
   try {
@@ -1172,6 +1178,24 @@ async function callLoginFunction(body) {
       body: JSON.stringify(body),
     });
     const data = await r.json().catch(() => null);
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: 'Connection error' } };
+  }
+}
+
+// Call the token-verified data function. Returns { ok, status, data }.
+async function callData(op, extra = {}) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON}`, 'apikey': SUPABASE_ANON },
+      body: JSON.stringify({ token: SESSION_TOKEN, op, ...extra }),
+    });
+    const data = await r.json().catch(() => null);
+    if (r.status === 401) { // token invalid/expired → send back to login
+      toast('Session expired — please log in again', 3500);
+    }
     return { ok: r.ok, status: r.status, data };
   } catch (e) {
     return { ok: false, status: 0, data: { error: 'Connection error' } };
@@ -1650,18 +1674,23 @@ async function fetchMyRequests() {
 }
 
 async function fetchMyAvail() {
-  const res = await sb.from('availability').select('*', `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}`);
-  S.myAvail = {};
-  if (res.ok && res.data) {
-    res.data.forEach(row => {
-      if (!S.myAvail[row.date]) S.myAvail[row.date] = { slots: [], holiday: false };
-      if (row.is_holiday) {
-        S.myAvail[row.date].holiday = true;
-      } else {
-        S.myAvail[row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note || '', type: 'available', allDay: !!row.all_day });
-      }
-    });
+  let rows = [];
+  if (USE_DATA_FUNCTION) {
+    const res = await callData('avail_get_mine');
+    rows = (res.ok && res.data?.data) ? res.data.data : [];
+  } else {
+    const res = await sb.from('availability').select('*', `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}`);
+    rows = (res.ok && res.data) ? res.data : [];
   }
+  S.myAvail = {};
+  rows.forEach(row => {
+    if (!S.myAvail[row.date]) S.myAvail[row.date] = { slots: [], holiday: false };
+    if (row.is_holiday) {
+      S.myAvail[row.date].holiday = true;
+    } else {
+      S.myAvail[row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note || '', type: 'available', allDay: !!row.all_day });
+    }
+  });
 }
 
 /* ── Week strip ── */
@@ -1878,6 +1907,13 @@ async function confirmSlot() {
 }
 
 async function saveAvailRow(date, start, end, isHoliday, note, allDay) {
+  if (USE_DATA_FUNCTION) {
+    await callData('avail_insert', { row: {
+      staff_name: S.name, date, start_time: start, end_time: end,
+      is_holiday: isHoliday, note: note || null, all_day: !!allDay
+    }});
+    return;
+  }
   await sb.from('availability').insert({
     team_id: S.teamId, staff_name: S.name, date,
     start_time: start, end_time: end, is_holiday: isHoliday, note: note || null,
@@ -1888,11 +1924,18 @@ async function saveAvailRow(date, start, end, isHoliday, note, allDay) {
 async function deleteSlot(dstr, idx) {
   const slot = S.myAvail[dstr]?.slots[idx];
   if (!slot) return;
-  const base = `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}`;
-  if (slot.allDay) {
-    await sb.from('availability').delete(`${base}&all_day=eq.true`);
+  if (USE_DATA_FUNCTION) {
+    const filter = { staff_name: S.name, date: dstr };
+    if (slot.allDay) filter.all_day = true;
+    else { filter.start_time = slot.start; filter.end_time = slot.end; }
+    await callData('avail_delete', { filter });
   } else {
-    await sb.from('availability').delete(`${base}&start_time=eq.${slot.start}&end_time=eq.${slot.end}`);
+    const base = `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}`;
+    if (slot.allDay) {
+      await sb.from('availability').delete(`${base}&all_day=eq.true`);
+    } else {
+      await sb.from('availability').delete(`${base}&start_time=eq.${slot.start}&end_time=eq.${slot.end}`);
+    }
   }
   S.myAvail[dstr].slots.splice(idx, 1);
   renderStaffWeekStrip();
@@ -1904,9 +1947,13 @@ async function toggleHoliday() {
   const dstr  = S.selectedDate;
   const avail = S.myAvail[dstr] || { slots: [], holiday: false };
   if (avail.holiday) {
-    await sb.from('availability').delete(
-      `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}&is_holiday=eq.true`
-    );
+    if (USE_DATA_FUNCTION) {
+      await callData('avail_delete', { filter: { staff_name: S.name, date: dstr, is_holiday: true } });
+    } else {
+      await sb.from('availability').delete(
+        `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}&is_holiday=eq.true`
+      );
+    }
     if (S.myAvail[dstr]) S.myAvail[dstr].holiday = false;
   } else {
     await saveAvailRow(dstr, null, null, true, '');
@@ -1953,7 +2000,11 @@ function weekHasContent(weekStartDate) {
 async function clearWeek(weekStartDate) {
   for (const d of weekDays(weekStartDate)) {
     const dstr = ds(d);
-    await sb.from('availability').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}`);
+    if (USE_DATA_FUNCTION) {
+      await callData('avail_delete', { filter: { staff_name: S.name, date: dstr } });
+    } else {
+      await sb.from('availability').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}&date=eq.${dstr}`);
+    }
     if (S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
   }
 }
@@ -2271,21 +2322,26 @@ async function fetchTimeOffRequests() {
 }
 
 async function fetchAllAvail() {
-  const res = await sb.from('availability').select('*', `team_id=eq.${S.teamId}`);
-  S.staffAvail = {};
-  if (res.ok && res.data) {
-    res.data.forEach(row => {
-      if (!S.staffAvail[row.staff_name]) S.staffAvail[row.staff_name] = {};
-      if (!S.staffAvail[row.staff_name][row.date]) S.staffAvail[row.staff_name][row.date] = { slots: [], holiday: false };
-      if (row.is_holiday) {
-        S.staffAvail[row.staff_name][row.date].holiday = true;
-      } else if (row.all_day) {
-        S.staffAvail[row.staff_name][row.date].slots.push({ start: null, end: null, note: row.note||'', type:'available', allDay:true });
-      } else if (row.start_time) {
-        S.staffAvail[row.staff_name][row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note||'', type:'available', allDay:false });
-      }
-    });
+  let availRows = [];
+  if (USE_DATA_FUNCTION) {
+    const res = await callData('avail_get_all');
+    availRows = (res.ok && res.data?.data) ? res.data.data : [];
+  } else {
+    const res = await sb.from('availability').select('*', `team_id=eq.${S.teamId}`);
+    availRows = (res.ok && res.data) ? res.data : [];
   }
+  S.staffAvail = {};
+  availRows.forEach(row => {
+    if (!S.staffAvail[row.staff_name]) S.staffAvail[row.staff_name] = {};
+    if (!S.staffAvail[row.staff_name][row.date]) S.staffAvail[row.staff_name][row.date] = { slots: [], holiday: false };
+    if (row.is_holiday) {
+      S.staffAvail[row.staff_name][row.date].holiday = true;
+    } else if (row.all_day) {
+      S.staffAvail[row.staff_name][row.date].slots.push({ start: null, end: null, note: row.note||'', type:'available', allDay:true });
+    } else if (row.start_time) {
+      S.staffAvail[row.staff_name][row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note||'', type:'available', allDay:false });
+    }
+  });
   // Fetch rota assignments
   const rot = await sb.from('rota_assignments').select('*', `team_id=eq.${S.teamId}`);
   S.rota = {};
