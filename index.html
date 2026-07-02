@@ -3811,7 +3811,7 @@ async function setStaffDept(encName, dept) {
 /* ── Manager tabs ── */
 function switchMgrTab(tab) {
   S.mgrTab = tab;
-  ['overview','rota','shifts','staff','settings','history'].forEach(t => {
+  ['overview','rota','patterns','staff','settings','history'].forEach(t => {
     const el = document.getElementById(`mgr-tab-${t}`);
     if (el) el.style.display = t === tab ? 'block' : 'none';
     const nav = document.getElementById(`mgr-nav-${t}`);
@@ -3820,7 +3820,7 @@ function switchMgrTab(tab) {
   document.getElementById('mgr-week-nav').style.display = ['overview','rota'].includes(tab) ? 'flex' : 'none';
   if (tab === 'overview') renderMgrOverview();
   if (tab === 'rota')     renderShifts();
-  if (tab === 'shifts') { renderPresets(); }
+  if (tab === 'patterns') { renderPresets(); }
   if (tab === 'staff')    renderStaffListMgr();
   if (tab === 'history')  renderWorkHistory();
 }
