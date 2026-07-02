@@ -951,52 +951,6 @@
 </div>
 
 <!-- Add Shift -->
-<div class="modal-overlay" id="modal-pattern">
-  <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">New Shift</div>
-    <div class="field"><label>Shift name</label><input type="text" id="shift-label" placeholder="Enter a name here"></div>
-    <div class="t-label">Shifts in this shift</div>
-    <div id="shift-build-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-    <div class="field"><label>Add a premade shift</label>
-      <select id="shift-preset-pick">
-        <option value="">— choose a premade shift —</option>
-      </select>
-    </div>
-    <button class="btn btn-ghost btn-sm" onclick="addPresetToPattern()">+ Add to shift</button>
-    <div class="modal-row">
-      <button class="btn btn-ghost" onclick="closeModal('modal-pattern')">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmPattern()">Save Shift</button>
-    </div>
-  </div>
-</div>
-
-<!-- Apply Shift -->
-<div class="modal-overlay" id="modal-apply">
-  <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">Apply Shift</div>
-    <div class="field"><label>Shift</label>
-      <select id="apply-shift-pick"><option value="">— choose —</option></select>
-    </div>
-    <div style="display:flex;gap:12px;">
-      <div class="field" style="flex:1;"><label>From date</label><input type="text" id="apply-from" placeholder="YYYY-MM-DD"></div>
-      <div class="field" style="flex:1;"><label>To date</label><input type="text" id="apply-to" placeholder="YYYY-MM-DD"></div>
-    </div>
-    <div class="field"><label>Apply on</label>
-      <select id="apply-which">
-        <option value="all">Every day in range</option>
-        <option value="weekdays">Weekdays only (Mon–Fri)</option>
-        <option value="weekends">Weekends only (Sat–Sun)</option>
-      </select>
-    </div>
-    <div id="apply-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
-    <div class="modal-row">
-      <button class="btn btn-ghost" onclick="closeModal('modal-apply')">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmApplyPattern()">Apply</button>
-    </div>
-  </div>
-</div>
 
 <!-- Day menu: add shift or apply shift to a person/day -->
 <div class="modal-overlay" id="modal-daymenu">
@@ -1256,14 +1210,6 @@ async function deleteShiftById(id) {
   await sb.from('shift_assignments').delete(`shift_id=eq.${id}`);
   await sb.from('shifts').delete(`id=eq.${id}`);
 }
-
-async function setAssignees(shiftId, assignees) {
-  if (USE_DATA_FUNCTION) { await callData('assign_set', { shift_id: shiftId, assignees: assignees || [] }); return; }
-  await sb.from('shift_assignments').delete(`shift_id=eq.${shiftId}`);
-  for (const name of (assignees || [])) {
-    await sb.from('shift_assignments').insert({ shift_id: shiftId, team_id: S.teamId, staff_name: name });
-  }
-}
 </script>
 
 <script>
@@ -1305,7 +1251,6 @@ const S = {
   // local cache
   myAvail: {},          // { 'YYYY-MM-DD': { slots, holiday } }
   staffAvail: {},       // { staffName: { 'YYYY-MM-DD': { slots, holiday } } }
-  rota: {},             // { 'YYYY-MM-DD': [ { slot_idx, staff_name, start, end } ] }
   staffList: [],        // [ { name } ]
   blockedDays: {},      // { 'YYYY-MM-DD': true }
   timeOffRequests: [],  // [ { id, staff_name, date, reason, status } ]
@@ -1319,10 +1264,8 @@ const S = {
   presets: [],          // shift presets
   shifts: [],         // [ { id, label, shifts:[...] } ]
   shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
-  patternBuild: [],     // shifts being assembled in the New Shift modal
   editingShiftId: null,
   editingPresetId: null,
-  editingPatternId: null,
   pickedPatternId: null,   // shift picked up for tap-to-apply
   draggedPatternId: null,  // shift being dragged (desktop)
   slotType: 'available',
@@ -1364,7 +1307,6 @@ const DEPARTMENTS = [
   { key: 'cleaners', title: 'Cleaners',        dot: '#c98ef0',       cls: 'c' },
 ];
 function deptTitle(key) { const d = DEPARTMENTS.find(x => x.key === key); return d ? d.title : 'Front of House'; }
-function deptCls(key)   { const d = DEPARTMENTS.find(x => x.key === key); return d ? d.cls : 'f'; }
 
 // Case-insensitive alphabetical sort for names (so "alice" and "Bob" order naturally)
 function byName(a, b) { return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }); }
@@ -2463,15 +2405,6 @@ async function fetchAllAvail() {
       S.staffAvail[row.staff_name][row.date].slots.push({ start: row.start_time, end: row.end_time, note: row.note||'', type:'available', allDay:false });
     }
   });
-  // Fetch rota assignments
-  const rot = await sb.from('rota_assignments').select('*', `team_id=eq.${S.teamId}`);
-  S.rota = {};
-  if (rot.ok && rot.data) {
-    rot.data.forEach(r => {
-      if (!S.rota[r.date]) S.rota[r.date] = [];
-      S.rota[r.date].push({ staff_name: r.staff_name, start: r.start_time, end: r.end_time, id: r.id });
-    });
-  }
   // Staff list
   const st = await sb.from('staff_members').select('*', `team_id=eq.${S.teamId}&order=name.asc`);
   S.staffList = (st.ok && st.data) ? st.data : Object.keys(S.staffAvail).map(n => ({ name: n }));
@@ -2689,25 +2622,7 @@ function onCellDrop(ev, encName, dstr, deptKey) {
   if (!prev) S.pickedPatternId = null;
 }
 
-// Apply the currently picked (or dropped) shift's shifts to one person/day
-function patternClashReason(pat, name, dstr) {
-  const proposed = pat.shifts.map(s => ({ start: s.start_time, end: s.end_time, label: s.label }));
-  // 1) any shift shift vs the person's existing shifts that day
-  for (const p of proposed) {
-    const c = findClash(name, dstr, p.start, p.end);
-    if (c) return `would clash with ${c.label || 'an existing shift'} ${fmtRange(c.start, c.end)}`;
-  }
-  // 2) shift shifts overlapping each other
-  for (let i = 0; i < proposed.length; i++) {
-    for (let j = i+1; j < proposed.length; j++) {
-      if (rangesOverlap(proposed[i].start, proposed[i].end, proposed[j].start, proposed[j].end)) {
-        return `has overlapping shifts within itself (${fmtRange(proposed[i].start, proposed[i].end)} and ${fmtRange(proposed[j].start, proposed[j].end)})`;
-      }
-    }
-  }
-  return null;
-}
-
+// Apply the currently picked (or dropped) premade shift to one person/day
 async function applyPatternToCell(name, dstr) {
   const preset = S.presets.find(p => p.id === S.pickedPatternId);
   if (!preset) return;
@@ -2897,12 +2812,6 @@ function shiftHours(sh) {
   let mins = (sh2*60+sm2) - (sh1*60+sm1);
   if (mins < 0) mins += 24*60; // overnight safety
   return mins / 60;
-}
-function weeklyHoursFor(name) {
-  const days = weekDays(S.mgrWeekStart).map(ds);
-  let total = 0;
-  days.forEach(dstr => shiftsForStaffDay(name, dstr).forEach(sh => { total += shiftHours(sh); }));
-  return total;
 }
 function weeklyHoursForDept(name, deptKey) {
   const days = weekDays(S.mgrWeekStart).map(ds);
@@ -3250,26 +3159,6 @@ async function confirmPatternPick() {
   closeModal('modal-patternpick');
   renderShifts();
   toast(`Added ${checks.length} shift${checks.length!==1?'s':''} to ${name}`);
-}
-
-function assignToShift(shiftId, slotIdx, name) {
-  for (const dstr in S.shifts) {
-    const sh = S.shifts[dstr].find(x => x.id === shiftId);
-    if (sh) {
-      sh.assigned[slotIdx] = name;
-      sh.assigned = sh.assigned.filter(Boolean); // compact
-      break;
-    }
-  }
-  renderShifts();
-  saveShiftAssignments(shiftId);
-}
-
-async function saveShiftAssignments(shiftId) {
-  let sh = null;
-  for (const dstr in S.shifts) { const f = S.shifts[dstr].find(x=>x.id===shiftId); if (f){sh=f;break;} }
-  if (!sh) return;
-  await setAssignees(shiftId, sh.assigned.filter(Boolean));
 }
 
 /* ── Add / edit a single shift ── */
@@ -3701,168 +3590,6 @@ async function deletePreset(id) {
   renderPresets();
 }
 
-/* ── PATTERNS ── */
-function renderPatterns() {
-  const c = document.getElementById('patterns-container');
-  if (!S.patterns.length) {
-    c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No shifts yet. Group shifts into a reusable day template like “Weekday” or “Event Day”.</div></div>';
-    return;
-  }
-  c.innerHTML = S.patterns.map(p => {
-    const shiftSummary = p.shifts.map(s => `${s.label||'Shift'} ${fmtRange(s.start_time, s.end_time)}`).join(' · ') || 'No shifts';
-    return `<div class="staff-card">
-      <div style="flex:1;"><div class="staff-name">${p.label}</div>
-      <div class="staff-meta">${shiftSummary}</div></div>
-      <div class="staff-right" style="display:flex;gap:6px;">
-        <button class="btn btn-ghost btn-sm" onclick="openEditPattern('${p.id}')">Edit</button>
-        <button class="btn btn-danger btn-sm" onclick="deletePattern('${p.id}')">Delete</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function openAddPattern() {
-  S.editingPatternId = null;
-  S.patternBuild = [];
-  document.getElementById('shift-label').value = '';
-  renderPatternBuild();
-  const pick = document.getElementById('shift-preset-pick');
-  pick.innerHTML = '<option value="">— choose a premade shift —</option>' +
-    S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
-  openModal('modal-pattern');
-}
-
-function openEditPattern(id) {
-  const p = S.patterns.find(x => x.id === id);
-  if (!p) return;
-  S.editingPatternId = id;
-  document.querySelector('#modal-pattern .modal-title').textContent = 'Edit Shift';
-  document.getElementById('shift-label').value = p.label;
-  // load existing shifts into the builder
-  S.patternBuild = p.shifts.map(s => ({ label: s.label, start: s.start_time, end: s.end_time }));
-  renderPatternBuild();
-  const pick = document.getElementById('shift-preset-pick');
-  pick.innerHTML = '<option value="">— choose a premade shift —</option>' +
-    S.presets.map(pr => `<option value="${pr.id}">${pr.label} (${fmtRange(pr.start_time, pr.end_time)})</option>`).join('');
-  openModal('modal-pattern');
-}
-
-function renderPatternBuild() {
-  const c = document.getElementById('shift-build-list');
-  if (!S.patternBuild.length) { c.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">No shifts added yet.</div>'; return; }
-  c.innerHTML = S.patternBuild.map((s,i) => `<div class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;">
-      <div class="rota-time">${fmtRange(s.start, s.end)}</div>
-      <div style="flex:1;font-size:0.82rem;">${s.label||'Shift'}</div>
-      <button class="btn btn-danger btn-sm" onclick="removePatternBuild(${i})">✕</button>
-    </div>`).join('');
-}
-
-function addPresetToPattern() {
-  const id = document.getElementById('shift-preset-pick').value;
-  const p = S.presets.find(x => x.id === id);
-  if (!p) { toast('Choose a preset first'); return; }
-  S.patternBuild.push({ label: p.label, start: p.start_time, end: p.end_time });
-  renderPatternBuild();
-}
-
-function removePatternBuild(i) { S.patternBuild.splice(i,1); renderPatternBuild(); }
-
-async function confirmPattern() {
-  const label = document.getElementById('shift-label').value.trim();
-  if (!label) { toast('Give the shift a name'); return; }
-  if (!S.patternBuild.length) { toast('Add at least one shift'); return; }
-
-  if (S.editingPatternId) {
-    const patternId = S.editingPatternId;
-    await sb.from('patterns').update({ label }, `id=eq.${patternId}`);
-    // replace the shift's shifts wholesale
-    await sb.from('pattern_shifts').delete(`pattern_id=eq.${patternId}`);
-    const shifts = [];
-    for (const s of S.patternBuild) {
-      const r = await sb.from('pattern_shifts').insert({
-        pattern_id: patternId, label: s.label, start_time: s.start, end_time: s.end
-      });
-      if (r.ok && r.data?.[0]) shifts.push(r.data[0]);
-    }
-    const pat = S.patterns.find(x => x.id === patternId);
-    if (pat) { pat.label = label; pat.shifts = shifts; }
-    S.editingPatternId = null;
-    closeModal('modal-pattern');
-    renderPatterns();
-    toast('Shift updated');
-    return;
-  }
-
-  const res = await sb.from('patterns').insert({ team_id: S.teamId, label });
-  if (!res.ok || !res.data?.[0]) { toast('Could not save shift'); return; }
-  const patternId = res.data[0].id;
-  const shifts = [];
-  for (const s of S.patternBuild) {
-    const r = await sb.from('pattern_shifts').insert({
-      pattern_id: patternId, label: s.label, start_time: s.start, end_time: s.end
-    });
-    if (r.ok && r.data?.[0]) shifts.push(r.data[0]);
-  }
-  S.patterns.push({ id: patternId, label, shifts });
-  closeModal('modal-pattern');
-  renderPatterns();
-  toast('Shift saved');
-}
-
-async function deletePattern(id) {
-  await sb.from('patterns').delete(`id=eq.${id}`);
-  S.patterns = S.patterns.filter(p => p.id !== id);
-  renderPatterns();
-}
-
-/* ── APPLY PATTERN over a date range ── */
-function openApplyPattern() {
-  const pick = document.getElementById('apply-shift-pick');
-  pick.innerHTML = '<option value="">— choose —</option>' +
-    S.patterns.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
-  document.getElementById('apply-from').value = ds(S.mgrWeekStart);
-  const wkEnd = new Date(S.mgrWeekStart); wkEnd.setDate(wkEnd.getDate()+6);
-  document.getElementById('apply-to').value = ds(wkEnd);
-  err('apply-error','');
-  openModal('modal-apply');
-}
-
-async function confirmApplyPattern() {
-  const patternId = document.getElementById('apply-shift-pick').value;
-  const from = document.getElementById('apply-from').value.trim();
-  const to   = document.getElementById('apply-to').value.trim();
-  const which = document.getElementById('apply-which').value;
-  const pat = S.patterns.find(p => p.id === patternId);
-  if (!pat) { err('apply-error','Choose a shift'); return; }
-  const fromD = new Date(from + 'T12:00:00'), toD = new Date(to + 'T12:00:00');
-  if (isNaN(fromD) || isNaN(toD) || fromD > toD) { err('apply-error','Check your date range (YYYY-MM-DD)'); return; }
-
-  setLoading(true, 'Applying shift…');
-  let count = 0;
-  for (let d = new Date(fromD); d <= toD; d.setDate(d.getDate()+1)) {
-    const dow = d.getDay(); // 0 Sun .. 6 Sat
-    if (which === 'weekdays' && (dow === 0 || dow === 6)) continue;
-    if (which === 'weekends' && dow !== 0 && dow !== 6) continue;
-    const dstr = ds(d);
-    for (const s of pat.shifts) {
-      const newId = await insertShift({
-        team_id: S.teamId, date: dstr, label: s.label,
-        start_time: s.start_time, end_time: s.end_time, staff_needed: 1
-      }, []);
-      if (newId) {
-        (S.shifts[dstr] ||= []).push({
-          id: newId, label: s.label, start: s.start_time, end: s.end_time,
-          needed: 1, assigned: []
-        });
-        count++;
-      }
-    }
-  }
-  setLoading(false);
-  closeModal('modal-apply');
-  renderShifts();
-  toast(`✅ Added ${count} shift${count!==1?'s':''}`);
-}
 
 /* ── Staff list (manager) ── */
 function staffCodeFor(name) {
