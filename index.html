@@ -770,14 +770,11 @@
   </div>
 
   <div class="scroll-body" id="mgr-tab-patterns" style="display:none;">
-    <div class="section-header"><div class="t-label">Shift Presets</div>
-      <button class="btn btn-primary btn-sm" onclick="openAddPreset()">+ New Preset</button>
+    <div class="section-header"><div class="t-label">Premade Shifts</div>
+      <button class="btn btn-primary btn-sm" onclick="openAddPreset()">+ New Shift</button>
     </div>
+    <div class="t-sub" style="padding:0 14px 6px;">Make reusable shifts here (a label and a time). On the Rota tab, tap one then a cell, or drag it onto a cell, to schedule it.</div>
     <div id="presets-container"></div>
-    <div class="section-header" style="margin-top:8px;"><div class="t-label">Shifts</div>
-      <button class="btn btn-primary btn-sm" onclick="openAddPattern()">+ New Shift</button>
-    </div>
-    <div id="patterns-container"></div>
   </div>
 
   <div class="scroll-body" id="mgr-tab-staff" style="display:none;">
@@ -916,7 +913,7 @@
     <div class="field"><label>Department</label>
       <select id="shift-dept" onchange="setShiftDept(this.value)"></select>
     </div>
-    <div class="field"><label>Use a preset (optional)</label>
+    <div class="field"><label>Use a premade shift (optional)</label>
       <select id="shift-preset-pick" onchange="applyPresetToShiftForm()">
         <option value="">— Custom —</option>
       </select>
@@ -940,7 +937,7 @@
 <div class="modal-overlay" id="modal-preset">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">New Preset</div>
+    <div class="modal-title">New Premade Shift</div>
     <div class="field"><label>Label</label><input type="text" id="preset-label" placeholder="Enter a name here"></div>
     <div style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><select id="preset-start"></select></div>
@@ -961,9 +958,9 @@
     <div class="field"><label>Shift name</label><input type="text" id="shift-label" placeholder="Enter a name here"></div>
     <div class="t-label">Shifts in this shift</div>
     <div id="shift-build-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-    <div class="field"><label>Add a shift from preset</label>
+    <div class="field"><label>Add a premade shift</label>
       <select id="shift-preset-pick">
-        <option value="">— choose preset —</option>
+        <option value="">— choose a premade shift —</option>
       </select>
     </div>
     <button class="btn btn-ghost btn-sm" onclick="addPresetToPattern()">+ Add to shift</button>
@@ -1007,7 +1004,7 @@
     <div class="modal-handle"></div>
     <div class="modal-title" id="daymenu-title">Add to day</div>
     <button class="btn btn-primary btn-full" onclick="dayMenuAddShift()">+ Add a single shift</button>
-    <button class="btn btn-ghost btn-full" onclick="dayMenuApplyPattern()">Apply a shift</button>
+    <button class="btn btn-ghost btn-full" onclick="dayMenuApplyPattern()">Add a premade shift</button>
     <button class="btn btn-ghost btn-full" onclick="closeModal('modal-daymenu')">Cancel</button>
   </div>
 </div>
@@ -1020,7 +1017,7 @@
     <div class="field"><label>Department</label>
       <select id="es-dept" onchange="setEditShiftDept(this.value)"></select>
     </div>
-    <div class="field"><label>Use a preset (optional)</label>
+    <div class="field"><label>Use a premade shift (optional)</label>
       <select id="es-preset" onchange="applyPresetToEditForm()"><option value="">— Custom —</option></select>
     </div>
     <div class="field"><label>Label shown on rota</label><input type="text" id="es-label" placeholder="Enter a label here"></div>
@@ -1785,14 +1782,14 @@ async function refreshMyPermission() {
 }
 
 async function fetchPatternsForStaff() {
-  const pt = await sb.from('patterns').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
-  S.patterns = [];
-  if (pt.ok && pt.data) {
-    for (const pat of pt.data) {
-      const ps = await sb.from('pattern_shifts').select('*', `pattern_id=eq.${pat.id}&order=start_time.asc`);
-      S.patterns.push({ id: pat.id, label: pat.label, shifts: (ps.ok && ps.data) ? ps.data : [] });
-    }
-  }
+  // Staff can mark availability matching a manager's premade shift (a preset).
+  const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
+  S.presets = (pr.ok && pr.data) ? pr.data : [];
+  // Represent each premade shift as a single-shift "template" for the picker.
+  S.patterns = S.presets.map(p => ({
+    id: p.id, label: p.label,
+    shifts: [{ start_time: p.start_time, end_time: p.end_time, label: p.label }]
+  }));
 }
 
 async function fetchMyRequests() {
@@ -2482,16 +2479,11 @@ async function fetchAllAvail() {
   // Presets
   const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
   S.presets = (pr.ok && pr.data) ? pr.data : [];
-
-  // Shifts + their shifts
-  const pt = await sb.from('patterns').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
-  S.patterns = [];
-  if (pt.ok && pt.data) {
-    for (const pat of pt.data) {
-      const ps = await sb.from('pattern_shifts').select('*', `pattern_id=eq.${pat.id}&order=start_time.asc`);
-      S.patterns.push({ id: pat.id, label: pat.label, shifts: (ps.ok && ps.data) ? ps.data : [] });
-    }
-  }
+  // Premade shifts double as single-shift "templates" for the day-menu picker & bulk apply.
+  S.patterns = S.presets.map(p => ({
+    id: p.id, label: p.label,
+    shifts: [{ start_time: p.start_time, end_time: p.end_time, label: p.label }]
+  }));
 
   // Scheduled shifts + assignments
   const { shifts: shfData, assignments: asgData } = await getShifts();
@@ -2631,34 +2623,33 @@ function timeOverlapsAvail(name, dstr, start, end) {
   return av.slots?.some(s => s.type === 'available' && !s.allDay && toMins(s.start) <= s0 && toMins(s.end) >= e0);
 }
 
-/* ── PATTERN DRAG/TAP HELPERS ── */
+/* ── PREMADE SHIFT DRAG/TAP HELPERS ── */
 function renderPatternBar() {
   const bar = document.getElementById('pattern-bar');
   if (!bar) return;
-  if (!S.patterns.length) {
-    bar.innerHTML = '<div class="pbar"><div class="pbar-title">Shifts</div><div style="font-size:0.78rem;color:var(--muted);padding:2px 2px 10px;">No shifts yet — create them in the Shifts tab.</div></div>';
+  if (!S.presets.length) {
+    bar.innerHTML = '<div class="pbar"><div class="pbar-title">Premade Shifts</div><div style="font-size:0.78rem;color:var(--muted);padding:2px 2px 10px;">No premade shifts yet — create them in the Shifts tab.</div></div>';
     return;
   }
   let banner = '';
   if (S.pickedPatternId) {
-    const p = S.patterns.find(x => x.id === S.pickedPatternId);
+    const p = S.presets.find(x => x.id === S.pickedPatternId);
     banner = `<div class="pickup-banner">
-      <span>Tap a person's day to apply “${p ? p.label : 'shift'}”</span>
+      <span>Tap a person's day to add “${p ? p.label : 'shift'}”</span>
       <button class="btn btn-ghost btn-sm" onclick="cancelPatternPickup()">Cancel</button>
     </div>`;
   }
-  const chips = S.patterns.map(p => {
+  const chips = S.presets.map(p => {
     const picked = S.pickedPatternId === p.id ? ' picked' : '';
-    const meta = `${p.shifts.length} shift${p.shifts.length!==1?'s':''}`;
     return `<div class="pat-chip${picked}" draggable="true"
         ondragstart="onPatternDragStart(event,'${p.id}')"
         ondragend="onPatternDragEnd(event)"
         onclick="pickupPattern('${p.id}')">
       <span class="pc-name">${p.label}</span>
-      <span class="pc-meta">${meta} · tap or drag</span>
+      <span class="pc-meta">${fmtRange(p.start_time, p.end_time)} · tap or drag</span>
     </div>`;
   }).join('');
-  bar.innerHTML = `${banner}<div class="pbar"><div class="pbar-title">Shifts · tap one then a cell, or drag onto a cell</div>
+  bar.innerHTML = `${banner}<div class="pbar"><div class="pbar-title">Premade Shifts · tap one then a cell, or drag onto a cell</div>
     <div class="pbar-strip">${chips}</div></div>`;
 }
 
@@ -2718,66 +2709,61 @@ function patternClashReason(pat, name, dstr) {
 }
 
 async function applyPatternToCell(name, dstr) {
-  const pat = S.patterns.find(p => p.id === S.pickedPatternId);
-  if (!pat) return;
-  if (!pat.shifts.length) { toast('That shift has no shifts'); return; }
+  const preset = S.presets.find(p => p.id === S.pickedPatternId);
+  if (!preset) return;
+  const start = preset.start_time, end = preset.end_time;
+  const clearPick = () => { S.pickedPatternId = null; renderPatternBar(); renderShifts(); };
 
-  // HARD BLOCK: refuse the whole shift if it would create any overlap
-  const reason = patternClashReason(pat, name, dstr);
-  if (reason) {
-    S.pickedPatternId = null;
-    renderPatternBar();
-    renderShifts();
-    toast(`Can't apply “${pat.label}” to ${name}: it ${reason}.`, 3800);
+  // HARD BLOCK: refuse if it would overlap an existing shift that day
+  const dayShifts = shiftsForStaffDay(name, dstr);
+  if (dayShifts.some(sh => rangesOverlap(start, end, sh.start, sh.end))) {
+    clearPick();
+    toast(`Can't add “${preset.label}” to ${name}: it overlaps a shift they already have that day.`, 3800);
     return;
   }
 
-  // AVAILABILITY RULE: check each shift against stated availability.
+  // AVAILABILITY RULE
   const av = S.staffAvail[name]?.[dstr];
-  const outside = pat.shifts.filter(s => !timeOverlapsAvail(name, dstr, s.start_time.slice(0,5), s.end_time.slice(0,5)));
-  if (outside.length) {
+  if (!timeOverlapsAvail(name, dstr, start.slice(0,5), end.slice(0,5))) {
     if (!staffAllowsAdjust(name)) {
-      S.pickedPatternId = null;
-      renderPatternBar();
-      renderShifts();
-      const why = (av && av.holiday) ? `${name} has marked that day off` : `${name} isn't available for some of those times`;
-      toast(`Can't apply: ${why}, and hasn't allowed availability adjustments.`, 4200);
+      clearPick();
+      const why = (av && av.holiday) ? `${name} has marked that day off` : `${name} isn't available then`;
+      toast(`Can't add: ${why}, and hasn't allowed availability adjustments.`, 4200);
       return;
     }
-    let msg;
-    if (av && av.holiday) {
-      msg = `${name} marked ${dstr} as a day off (but allows adjustments). Apply “${pat.label}” anyway?`;
+    const msg = (av && av.holiday)
+      ? `${name} marked ${dstr} as a day off (but allows adjustments). Add “${preset.label}” anyway?`
+      : `${name} hasn't said they're available then (but allows adjustments). Add “${preset.label}” anyway?`;
+    if (!confirm(msg)) { clearPick(); return; }
+  }
+
+  // WEEKLY LIMIT check (max hours / days)
+  const breach = limitBreach(name, dstr, shiftHours({ start, end }));
+  if (breach) {
+    clearPick();
+    if (breach.type === 'hours') {
+      const ask = confirm(`${name} would be scheduled ${breach.would.toFixed(1)}h that week, over their ${breach.limit}h limit.\n\nYou can't override this. Send them a request to allow up to ${Math.ceil(breach.would)}h for that week?`);
+      if (ask) await requestExtraHours(name, dstr, breach.would);
     } else {
-      const list = outside.map(s => fmtRange(s.start_time, s.end_time)).join(', ');
-      msg = `${name} hasn't said they're available for ${list} (but allows adjustments). Apply “${pat.label}” anyway?`;
+      alert(`${name} would be working ${breach.would} days that week, over their ${breach.limit}-day limit.\n\nYou can't override this.`);
     }
-    if (!confirm(msg)) {
-      S.pickedPatternId = null;
-      renderPatternBar();
-      renderShifts();
-      return;
-    }
+    return;
   }
 
   const dept = staffDepartment(name);
-  // one group id per application so this shift-on-this-day-for-this-person stays grouped
-  const groupId = `${pat.id}-${dstr}-${name}-${Date.now()}`;
-  setLoading(true, 'Applying shift…');
-  for (const s of pat.shifts) {
-    const shiftId = await insertShift({
-      team_id: S.teamId, date: dstr, label: s.label, department: dept,
-      start_time: s.start_time, end_time: s.end_time, staff_needed: 1,
-      pattern_name: pat.label, pattern_group: groupId
-    }, [name]);
-    if (shiftId) {
-      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, patternName: pat.label, patternGroup: groupId, assigned: [name] });
-    }
+  setLoading(true, 'Adding shift…');
+  const shiftId = await insertShift({
+    team_id: S.teamId, date: dstr, label: preset.label, department: dept,
+    start_time: start, end_time: end, staff_needed: 1
+  }, [name]);
+  if (shiftId) {
+    (S.shifts[dstr] ||= []).push({ id: shiftId, label: preset.label, start, end, needed: 1, department: dept, assigned: [name] });
   }
   setLoading(false);
   S.pickedPatternId = null;
   renderPatternBar();
   renderShifts();
-  toast(`Applied “${pat.label}” to ${name}`);
+  toast(`Added “${preset.label}” to ${name}`);
 }
 
 function findShiftById(shiftId) {
@@ -3646,7 +3632,7 @@ async function exportRotaXlsx() {
 function renderPresets() {
   const c = document.getElementById('presets-container');
   if (!S.presets.length) {
-    c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No presets yet. Create reusable shift times like “Morning 09:00–13:00”.</div></div>';
+    c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No premade shifts yet. Create reusable shifts like “Early 09:00–17:00”, then use them on the Rota tab.</div></div>';
     return;
   }
   c.innerHTML = S.presets.map(p => `<div class="staff-card">
@@ -3661,7 +3647,7 @@ function renderPresets() {
 
 function openAddPreset() {
   S.editingPresetId = null;
-  document.querySelector('#modal-preset .modal-title').textContent = 'New Preset';
+  document.querySelector('#modal-preset .modal-title').textContent = 'New Premade Shift';
   document.getElementById('preset-label').value = '';
   fillTimeSelect('preset-start', '09:00');
   fillTimeSelect('preset-end', '13:00');
@@ -3672,7 +3658,7 @@ function openEditPreset(id) {
   const p = S.presets.find(x => x.id === id);
   if (!p) return;
   S.editingPresetId = id;
-  document.querySelector('#modal-preset .modal-title').textContent = 'Edit Preset';
+  document.querySelector('#modal-preset .modal-title').textContent = 'Edit Premade Shift';
   document.getElementById('preset-label').value = p.label;
   fillTimeSelect('preset-start', p.start_time.slice(0,5));
   fillTimeSelect('preset-end', p.end_time.slice(0,5));
@@ -3683,7 +3669,7 @@ async function confirmPreset() {
   const label  = document.getElementById('preset-label').value.trim();
   const start  = document.getElementById('preset-start').value;
   const end    = document.getElementById('preset-end').value;
-  if (!label) { toast('Give the preset a name'); return; }
+  if (!label) { toast('Give the shift a name'); return; }
   if (!start || !end || start >= end) { toast('End time must be after start'); return; }
 
   if (S.editingPresetId) {
@@ -3696,7 +3682,7 @@ async function confirmPreset() {
     S.editingPresetId = null;
     closeModal('modal-preset');
     renderPresets();
-    toast('Preset updated');
+    toast('Premade shift updated');
     return;
   }
 
@@ -3706,7 +3692,7 @@ async function confirmPreset() {
   if (res.ok && res.data?.[0]) S.presets.push(res.data[0]);
   closeModal('modal-preset');
   renderPresets();
-  toast('Preset saved');
+  toast('Premade shift saved');
 }
 
 async function deletePreset(id) {
@@ -3741,7 +3727,7 @@ function openAddPattern() {
   document.getElementById('shift-label').value = '';
   renderPatternBuild();
   const pick = document.getElementById('shift-preset-pick');
-  pick.innerHTML = '<option value="">— choose preset —</option>' +
+  pick.innerHTML = '<option value="">— choose a premade shift —</option>' +
     S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
   openModal('modal-pattern');
 }
@@ -3756,7 +3742,7 @@ function openEditPattern(id) {
   S.patternBuild = p.shifts.map(s => ({ label: s.label, start: s.start_time, end: s.end_time }));
   renderPatternBuild();
   const pick = document.getElementById('shift-preset-pick');
-  pick.innerHTML = '<option value="">— choose preset —</option>' +
+  pick.innerHTML = '<option value="">— choose a premade shift —</option>' +
     S.presets.map(pr => `<option value="${pr.id}">${pr.label} (${fmtRange(pr.start_time, pr.end_time)})</option>`).join('');
   openModal('modal-pattern');
 }
@@ -4105,7 +4091,7 @@ function switchMgrTab(tab) {
   document.getElementById('mgr-week-nav').style.display = ['overview','rota'].includes(tab) ? 'flex' : 'none';
   if (tab === 'overview') renderMgrOverview();
   if (tab === 'rota')     renderShifts();
-  if (tab === 'shifts') { renderPresets(); renderPatterns(); }
+  if (tab === 'shifts') { renderPresets(); }
   if (tab === 'staff')    renderStaffListMgr();
   if (tab === 'history')  renderWorkHistory();
 }
