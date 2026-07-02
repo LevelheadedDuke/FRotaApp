@@ -812,6 +812,8 @@
         <div class="t-sub" style="margin:0;">Old personal data (availability, codes, time-off reasons) is kept for 12 months, then cleared. Names, shifts worked and hours are kept as your planning record.</div>
         <button class="btn btn-ghost" onclick="viewWorkHistory()">📊 View work history (kept records)</button>
         <button class="btn btn-ghost" onclick="showPrivacyNotice('view')">📄 View privacy notice</button>
+        <button class="btn btn-ghost" onclick="backupSpreadsheet()">💾 Back up everything (spreadsheet)</button>
+        <button class="btn btn-ghost" onclick="backupJson()">🗄 Back up everything (full snapshot file)</button>
         <button class="btn btn-ghost" onclick="runRetentionCleanup()">🧹 Run data cleanup now (purge 12-month-old data)</button>
       </div>
 
@@ -3840,6 +3842,104 @@ async function runRetentionCleanup() {
 }
 
 function viewWorkHistory() { switchMgrTab('history'); }
+
+/* ── FULL DATA BACKUP ──
+   Gathers every table for this team into one object. Independent of any
+   platform: the manager keeps the file, and it holds everything needed to
+   see (or later restore) the team's data. */
+async function gatherAllData() {
+  const tid = `team_id=eq.${S.teamId}`;
+  const out = {
+    backup_version: 1,
+    generated_at: new Date().toISOString(),
+    team: { id: S.teamId, name: S.teamName, code: S.teamCode },
+    tables: {}
+  };
+  // Pull each table (best-effort: missing tables just stay empty)
+  const pulls = [
+    ['staff_members', tid],
+    ['availability', tid],
+    ['shifts', tid],
+    ['shift_assignments', tid],
+    ['shift_presets', tid],
+    ['blocked_days', tid],
+    ['time_off_requests', tid],
+    ['worked_shifts', tid],
+  ];
+  for (const [table, filter] of pulls) {
+    try {
+      const r = await sb.from(table).select('*', filter);
+      out.tables[table] = (r.ok && r.data) ? r.data : [];
+    } catch { out.tables[table] = []; }
+  }
+  return out;
+}
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function backupStamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+
+// Human-readable spreadsheet backup — one sheet per table
+async function backupSpreadsheet() {
+  if (typeof XLSX === 'undefined') { toast('Spreadsheet library still loading — try again in a moment'); return; }
+  setLoading(true, 'Preparing backup…');
+  const data = await gatherAllData();
+  const wb = XLSX.utils.book_new();
+
+  // Info sheet
+  const info = [
+    ['Rota backup'],
+    ['Team', data.team.name],
+    ['Team code', data.team.code],
+    ['Generated', data.generated_at],
+    [],
+    ['This file is a full copy of your team data at the time above.'],
+    ['Keep it somewhere safe (email or cloud drive). It needs no app to read.'],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'About');
+
+  // Friendly names for the sheets
+  const nice = {
+    staff_members: 'Staff', availability: 'Availability', shifts: 'Shifts',
+    shift_assignments: 'Assignments', shift_presets: 'Premade Shifts',
+    blocked_days: 'Blocked Days', time_off_requests: 'Time-off Requests',
+    worked_shifts: 'Work History',
+  };
+  for (const [table, rows] of Object.entries(data.tables)) {
+    const name = (nice[table] || table).slice(0, 28);
+    let ws;
+    if (rows.length) {
+      ws = XLSX.utils.json_to_sheet(rows);
+    } else {
+      ws = XLSX.utils.aoa_to_sheet([['(no records)']]);
+    }
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  }
+  XLSX.writeFile(wb, `rota-backup-${backupStamp()}.xlsx`);
+  setLoading(false);
+  toast('Backup spreadsheet downloaded');
+}
+
+// Complete snapshot as a JSON file — exact copy, suitable for a full restore
+async function backupJson() {
+  setLoading(true, 'Preparing backup…');
+  const data = await gatherAllData();
+  setLoading(false);
+  downloadBlob(JSON.stringify(data, null, 2), `rota-backup-${backupStamp()}.json`, 'application/json');
+  toast('Full snapshot downloaded');
+}
 
 async function renderWorkHistory() {
   const c = document.getElementById('history-container');
