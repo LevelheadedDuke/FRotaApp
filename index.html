@@ -492,8 +492,8 @@
     }
     .cell-add { color: var(--rim); font-size: 1.1rem; font-weight: 400; }
     .cell-shift + .cell-shift { margin-top: 3px; }
-    .cell-shift.cell-pattern { justify-content: center; min-height: 34px; font-weight: 800; }
-    .cell-shift.cell-pattern .cs-label { font-size: 0.76rem; }
+    .cell-shift.cell-shift { justify-content: center; min-height: 34px; font-weight: 800; }
+    .cell-shift.cell-shift .cs-label { font-size: 0.76rem; }
     .cell-shift.cell-pattern::after { content: '▾'; font-size: 0.6rem; opacity: 0.6; margin-top: 1px; }
     .cell-clash {
       background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800;
@@ -579,15 +579,15 @@
   </div>
   <div class="field" id="field-name">
     <label>Your Name</label>
-    <input type="text" id="setup-name" placeholder="e.g. Alex Johnson" autocomplete="name">
+    <input type="text" id="setup-name" placeholder="Enter name here" autocomplete="name">
   </div>
   <div class="field" id="field-join-code">
     <label>Team Code</label>
-    <input type="text" id="setup-join" placeholder="e.g. CROWN25" autocomplete="off" style="text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">
+    <input type="text" id="setup-join" placeholder="Enter team code here" autocomplete="off" style="text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">
   </div>
   <div class="field" id="field-staff-code">
     <label>Your 4-digit Code</label>
-    <input type="password" inputmode="numeric" id="setup-staff-code" placeholder="e.g. 4821" maxlength="4" style="letter-spacing:0.3em;font-weight:700;">
+    <input type="password" inputmode="numeric" id="setup-staff-code" placeholder="Enter your 4-digit code" maxlength="4" style="letter-spacing:0.3em;font-weight:700;">
   </div>
   <div class="field" id="field-manager-pin" style="display:none;">
     <label>Manager PIN</label>
@@ -595,11 +595,11 @@
   </div>
   <div class="field" id="field-team-setup" style="display:none;">
     <label>Team Name</label>
-    <input type="text" id="setup-team" placeholder="e.g. The Crown Pub">
+    <input type="text" id="setup-team" placeholder="Enter team name here">
   </div>
   <div class="field" id="field-new-code" style="display:none;">
     <label>Team Code (staff will use this)</label>
-    <input type="text" id="setup-new-code" placeholder="e.g. CROWN25" style="text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">
+    <input type="text" id="setup-new-code" placeholder="Enter team code here" style="text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">
   </div>
   <div class="field" id="field-new-pin" style="display:none;">
     <label>Manager PIN (keep private)</label>
@@ -683,6 +683,22 @@
         <span>Allow my manager to adjust my availability (schedule me outside the times I've set). You can turn this off anytime.</span>
       </label>
     </div>
+
+    <div class="card" style="margin:12px 0 0;">
+      <div class="t-head" style="margin-bottom:4px;">My weekly limits</div>
+      <div class="t-sub" style="margin:0 0 10px;">Optional. Your manager can't schedule you beyond these without asking you first. Leave blank for no limit.</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div class="field" style="flex:1;min-width:130px;margin:0;">
+          <label>Max hours / week</label>
+          <input type="number" id="max-hours-input" min="0" step="0.5" placeholder="No limit" onchange="saveMyLimits()">
+        </div>
+        <div class="field" style="flex:1;min-width:130px;margin:0;">
+          <label>Max days / week</label>
+          <input type="number" id="max-days-input" min="0" max="7" step="1" placeholder="No limit" onchange="saveMyLimits()">
+        </div>
+      </div>
+      <div id="extra-request-note" style="display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(245,166,35,0.12);border:1px solid rgba(245,166,35,0.3);font-size:0.8rem;"></div>
+    </div>
     <div style="text-align:center;margin-top:14px;">
       <button class="btn btn-ghost btn-sm" onclick="showPrivacyNotice('view')">📄 View privacy notice</button>
       <button class="btn btn-ghost btn-sm" onclick="openDeleteRequest()">🗑 Request my data be deleted</button>
@@ -758,8 +774,8 @@
       <button class="btn btn-primary btn-sm" onclick="openAddPreset()">+ New Preset</button>
     </div>
     <div id="presets-container"></div>
-    <div class="section-header" style="margin-top:8px;"><div class="t-label">Patterns</div>
-      <button class="btn btn-primary btn-sm" onclick="openAddPattern()">+ New Pattern</button>
+    <div class="section-header" style="margin-top:8px;"><div class="t-label">Shifts</div>
+      <button class="btn btn-primary btn-sm" onclick="openAddPattern()">+ New Shift</button>
     </div>
     <div id="patterns-container"></div>
   </div>
@@ -798,6 +814,7 @@
         <div class="t-head">Data &amp; Privacy</div>
         <div class="t-sub" style="margin:0;">Old personal data (availability, codes, time-off reasons) is kept for 12 months, then cleared. Names, shifts worked and hours are kept as your planning record.</div>
         <button class="btn btn-ghost" onclick="viewWorkHistory()">📊 View work history (kept records)</button>
+        <button class="btn btn-ghost" onclick="showPrivacyNotice('view')">📄 View privacy notice</button>
         <button class="btn btn-ghost" onclick="runRetentionCleanup()">🧹 Run data cleanup now (purge 12-month-old data)</button>
       </div>
 
@@ -823,10 +840,10 @@
       <span class="nav-icon">📊</span>Availability
     </button>
     <button class="nav-item" id="mgr-nav-rota" onclick="switchMgrTab('rota')">
-      <span class="nav-icon">📋</span>Shifts
+      <span class="nav-icon">📋</span>Rota
     </button>
     <button class="nav-item" id="mgr-nav-patterns" onclick="switchMgrTab('patterns')">
-      <span class="nav-icon">🔁</span>Patterns
+      <span class="nav-icon">🔁</span>Shifts
     </button>
     <button class="nav-item" id="mgr-nav-staff" onclick="switchMgrTab('staff')">
       <span class="nav-icon">👥</span>Staff
@@ -855,19 +872,19 @@
       <div class="type-toggle">
         <button class="type-opt sel-avail" id="mode-times" onclick="setAvailMode('times')">Enter times</button>
         <button class="type-opt" id="mode-allday" onclick="setAvailMode('allday')">All day</button>
-        <button class="type-opt" id="mode-pattern" onclick="setAvailMode('pattern')">Pattern</button>
+        <button class="type-opt" id="mode-shift" onclick="setAvailMode('shift')">Shift</button>
       </div>
     </div>
     <div id="time-row" style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><select id="slot-start"></select></div>
       <div class="field" style="flex:1;"><label>To</label><select id="slot-end"></select></div>
     </div>
-    <div id="pattern-pick-row" class="field" style="display:none;">
-      <label>Pattern (its shift times become your availability)</label>
-      <select id="slot-pattern" onchange="renderSlotPatternPreview()"><option value="">— choose —</option></select>
-      <div id="slot-pattern-preview" style="font-size:0.78rem;color:var(--muted);margin-top:6px;"></div>
+    <div id="shift-pick-row" class="field" style="display:none;">
+      <label>Shift (its shift times become your availability)</label>
+      <select id="slot-shift" onchange="renderSlotPatternPreview()"><option value="">— choose —</option></select>
+      <div id="slot-shift-preview" style="font-size:0.78rem;color:var(--muted);margin-top:6px;"></div>
     </div>
-    <div class="field" id="slot-note-row"><label>Note (optional)</label><input type="text" id="slot-note" placeholder="e.g. Can start earlier"></div>
+    <div class="field" id="slot-note-row"><label>Note (optional)</label><input type="text" id="slot-note" placeholder="Add a note (optional)"></div>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-slot')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmSlot()">Add</button>
@@ -904,7 +921,7 @@
         <option value="">— Custom —</option>
       </select>
     </div>
-    <div class="field"><label>Label shown on rota</label><input type="text" id="shift-label" placeholder="e.g. Kitchen"></div>
+    <div class="field"><label>Label shown on rota</label><input type="text" id="shift-label" placeholder="Enter a label here"></div>
     <div style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><select id="shift-start" onchange="onShiftTimeChange()"></select></div>
       <div class="field" style="flex:1;"><label>To</label><select id="shift-end" onchange="onShiftTimeChange()"></select></div>
@@ -924,7 +941,7 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">New Preset</div>
-    <div class="field"><label>Label</label><input type="text" id="preset-label" placeholder="e.g. Morning"></div>
+    <div class="field"><label>Label</label><input type="text" id="preset-label" placeholder="Enter a name here"></div>
     <div style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><select id="preset-start"></select></div>
       <div class="field" style="flex:1;"><label>To</label><select id="preset-end"></select></div>
@@ -936,34 +953,34 @@
   </div>
 </div>
 
-<!-- Add Pattern -->
+<!-- Add Shift -->
 <div class="modal-overlay" id="modal-pattern">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">New Pattern</div>
-    <div class="field"><label>Pattern name</label><input type="text" id="pattern-label" placeholder="e.g. Weekday"></div>
-    <div class="t-label">Shifts in this pattern</div>
-    <div id="pattern-build-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div class="modal-title">New Shift</div>
+    <div class="field"><label>Shift name</label><input type="text" id="shift-label" placeholder="Enter a name here"></div>
+    <div class="t-label">Shifts in this shift</div>
+    <div id="shift-build-list" style="display:flex;flex-direction:column;gap:8px;"></div>
     <div class="field"><label>Add a shift from preset</label>
-      <select id="pattern-preset-pick">
+      <select id="shift-preset-pick">
         <option value="">— choose preset —</option>
       </select>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="addPresetToPattern()">+ Add to pattern</button>
+    <button class="btn btn-ghost btn-sm" onclick="addPresetToPattern()">+ Add to shift</button>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-pattern')">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmPattern()">Save Pattern</button>
+      <button class="btn btn-primary" onclick="confirmPattern()">Save Shift</button>
     </div>
   </div>
 </div>
 
-<!-- Apply Pattern -->
+<!-- Apply Shift -->
 <div class="modal-overlay" id="modal-apply">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Apply Pattern</div>
-    <div class="field"><label>Pattern</label>
-      <select id="apply-pattern-pick"><option value="">— choose —</option></select>
+    <div class="modal-title">Apply Shift</div>
+    <div class="field"><label>Shift</label>
+      <select id="apply-shift-pick"><option value="">— choose —</option></select>
     </div>
     <div style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From date</label><input type="text" id="apply-from" placeholder="YYYY-MM-DD"></div>
@@ -984,13 +1001,13 @@
   </div>
 </div>
 
-<!-- Day menu: add shift or apply pattern to a person/day -->
+<!-- Day menu: add shift or apply shift to a person/day -->
 <div class="modal-overlay" id="modal-daymenu">
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="daymenu-title">Add to day</div>
     <button class="btn btn-primary btn-full" onclick="dayMenuAddShift()">+ Add a single shift</button>
-    <button class="btn btn-ghost btn-full" onclick="dayMenuApplyPattern()">Apply a pattern</button>
+    <button class="btn btn-ghost btn-full" onclick="dayMenuApplyPattern()">Apply a shift</button>
     <button class="btn btn-ghost btn-full" onclick="closeModal('modal-daymenu')">Cancel</button>
   </div>
 </div>
@@ -1006,7 +1023,7 @@
     <div class="field"><label>Use a preset (optional)</label>
       <select id="es-preset" onchange="applyPresetToEditForm()"><option value="">— Custom —</option></select>
     </div>
-    <div class="field"><label>Label shown on rota</label><input type="text" id="es-label" placeholder="e.g. Kitchen"></div>
+    <div class="field"><label>Label shown on rota</label><input type="text" id="es-label" placeholder="Enter a label here"></div>
     <div style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><select id="es-start"></select></div>
       <div class="field" style="flex:1;"><label>To</label><select id="es-end"></select></div>
@@ -1020,13 +1037,13 @@
   </div>
 </div>
 
-<!-- Pick which shifts of a pattern to apply to a person -->
+<!-- Pick which shifts of a shift to apply to a person -->
 <div class="modal-overlay" id="modal-patternpick">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Apply Pattern</div>
-    <div class="field"><label>Pattern</label>
-      <select id="pp-pattern" onchange="renderPatternPickShifts()"><option value="">— choose —</option></select>
+    <div class="modal-title">Apply Shift</div>
+    <div class="field"><label>Shift</label>
+      <select id="pp-shift" onchange="renderPatternPickShifts()"><option value="">— choose —</option></select>
     </div>
     <div class="t-label">Choose shifts to add</div>
     <div id="pp-shift-list" style="display:flex;flex-direction:column;gap:8px;"></div>
@@ -1038,11 +1055,11 @@
   </div>
 </div>
 
-<!-- Pattern group view: shifts within an applied pattern -->
+<!-- Shift group view: shifts within an applied shift -->
 <div class="modal-overlay" id="modal-patgroup">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="patgroup-title">Pattern</div>
+    <div class="modal-title" id="patgroup-title">Shift</div>
     <div class="t-sub" id="patgroup-sub">—</div>
     <div id="patgroup-list" style="display:flex;flex-direction:column;gap:8px;"></div>
     <div class="modal-row">
@@ -1078,7 +1095,7 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Add Staff Member</div>
     <div class="t-sub">A unique 4-digit login code is created automatically. Share it with them — they log in with the team code plus this code.</div>
-    <div class="field"><label>Name</label><input type="text" id="add-staff-name" placeholder="e.g. Sharon"></div>
+    <div class="field"><label>Name</label><input type="text" id="add-staff-name" placeholder="Enter name here"></div>
     <div class="field"><label>Department</label>
       <select id="add-staff-dept"></select>
     </div>
@@ -1097,7 +1114,7 @@
     <div class="modal-title">Request Day Off</div>
     <div class="t-sub">This day is blocked, so your manager needs to approve time off.</div>
     <div class="field"><label>Day</label><div id="req-day-label" style="font-weight:700;">—</div></div>
-    <div class="field"><label>Reason (optional)</label><input type="text" id="req-reason" placeholder="e.g. Family event"></div>
+    <div class="field"><label>Reason (optional)</label><input type="text" id="req-reason" placeholder="Reason (optional)"></div>
     <div id="req-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-request')">Cancel</button>
@@ -1158,16 +1175,15 @@ const SUPABASE_URL  = 'https://zmoytopjameydbsdbyky.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
 
 // ── Stage 3a: authentication gateway ──
-// Manager/staff login is verified by the secure "login" Edge Function
-// (PIN & staff codes checked server-side, never sent to the browser).
-// ON by default. Only set false to roll back (e.g. if the function is down).
-const USE_LOGIN_FUNCTION = true;
+// TEMPORARILY OFF (rolled back on 30 Jun during a Supabase platform incident
+// that stopped function setting-changes applying). Set BOTH flags back to
+// true once Supabase status is green and the Verify-JWT toggle sticks.
+const USE_LOGIN_FUNCTION = false;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
 
 // ── Stage 3b: data gateway ──
-// Data reads/writes go through the token-verified "data" Edge Function.
-// ON by default. Only set false to roll back to the direct path.
-const USE_DATA_FUNCTION = true;
+// TEMPORARILY OFF — see note above. Set back to true together with the login flag.
+const USE_DATA_FUNCTION = false;
 
 async function callLoginFunction(body) {
   try {
@@ -1299,15 +1315,19 @@ const S = {
   staffMemberId: null,
   consentedAt: null,
   allowAvailAdjust: false,
+  maxHours: null,
+  maxDays: null,
+  extraHoursRequested: null,
+  extraHoursWeek: null,
   presets: [],          // shift presets
-  patterns: [],         // [ { id, label, shifts:[...] } ]
+  shifts: [],         // [ { id, label, shifts:[...] } ]
   shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
-  patternBuild: [],     // shifts being assembled in the New Pattern modal
+  patternBuild: [],     // shifts being assembled in the New Shift modal
   editingShiftId: null,
   editingPresetId: null,
   editingPatternId: null,
-  pickedPatternId: null,   // pattern picked up for tap-to-apply
-  draggedPatternId: null,  // pattern being dragged (desktop)
+  pickedPatternId: null,   // shift picked up for tap-to-apply
+  draggedPatternId: null,  // shift being dragged (desktop)
   slotType: 'available',
   mgrTab: 'overview',
   staffTab: 'avail',
@@ -1474,8 +1494,8 @@ function declinePrivacy() {
 }
 
 function closePrivacyView() {
-  // Returning from a read-only view → back to the staff app
-  showScreen('screen-staff');
+  // Return to whichever app the viewer came from
+  showScreen(S.mode === 'manager' ? 'screen-manager' : 'screen-staff');
 }
 
 async function toggleAllowAdjust(checked) {
@@ -1486,8 +1506,59 @@ async function toggleAllowAdjust(checked) {
   toast(checked ? 'Manager can now adjust your availability' : 'Manager can no longer schedule you outside your availability');
 }
 
+async function saveMyLimits() {
+  const hv = document.getElementById('max-hours-input').value.trim();
+  const dv = document.getElementById('max-days-input').value.trim();
+  const maxHours = hv === '' ? null : Math.max(0, parseFloat(hv));
+  const maxDays  = dv === '' ? null : Math.max(0, Math.min(7, parseInt(dv, 10)));
+  S.maxHours = maxHours; S.maxDays = maxDays;
+  await sb.from('staff_members').update({ max_hours_per_week: maxHours, max_days_per_week: maxDays },
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  toast('Weekly limits saved');
+}
+
+// Load my limits + any pending "please allow more" request into the UI
+function fillMyLimits() {
+  const hEl = document.getElementById('max-hours-input');
+  const dEl = document.getElementById('max-days-input');
+  if (hEl) hEl.value = (S.maxHours ?? '') === null ? '' : (S.maxHours ?? '');
+  if (dEl) dEl.value = (S.maxDays ?? '') === null ? '' : (S.maxDays ?? '');
+  const note = document.getElementById('extra-request-note');
+  if (note && S.extraHoursRequested) {
+    note.style.display = 'block';
+    note.innerHTML = `Your manager has asked if you can work up to <strong>${S.extraHoursRequested} hours</strong> for the week of ${S.extraHoursWeek}. `
+      + `<button class="btn btn-green btn-xs" onclick="approveExtraHours()">Allow for that week</button> `
+      + `<button class="btn btn-ghost btn-xs" onclick="declineExtraHours()">No</button>`;
+  } else if (note) {
+    note.style.display = 'none';
+  }
+}
+
+async function approveExtraHours() {
+  // Approving raises the stored max to the requested figure (simple, transparent approach)
+  S.maxHours = S.extraHoursRequested;
+  document.getElementById('max-hours-input').value = S.extraHoursRequested;
+  await sb.from('staff_members').update({
+    max_hours_per_week: S.extraHoursRequested, extra_hours_requested: null, extra_hours_week: null
+  }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  S.extraHoursRequested = null; S.extraHoursWeek = null;
+  fillMyLimits();
+  toast('Thanks — your manager can now schedule those hours');
+}
+
+async function declineExtraHours() {
+  await sb.from('staff_members').update({ extra_hours_requested: null, extra_hours_week: null },
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  S.extraHoursRequested = null; S.extraHoursWeek = null;
+  fillMyLimits();
+  toast('Declined — your limit stays as it is');
+}
+
 async function openDeleteRequest() {
-  if (!confirm('Send a request to your manager to delete your data?\\n\\nYour manager will be asked to remove your information. They may contact you to confirm.')) return;
+  const msg = 'Send a request to your manager to delete your data?\n\n'
+    + 'Important: deleting your data also removes your login, so you won\u2019t be able to sign in or be given future shifts unless your manager sets up a new login for you.\n\n'
+    + 'Your manager will be asked to remove your information and may contact you to confirm.';
+  if (!confirm(msg)) return;
   const now = new Date().toISOString();
   await sb.from('staff_members').update({ deletion_requested_at: now },
     `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
@@ -1698,12 +1769,18 @@ async function initStaff() {
 
 // Re-read this staff member's consent + permission (in case it changed elsewhere)
 async function refreshMyPermission() {
-  const res = await sb.from('staff_members').select('consented_at,allow_avail_adjust',
+  const res = await sb.from('staff_members').select('consented_at,allow_avail_adjust,max_hours_per_week,max_days_per_week,extra_hours_requested,extra_hours_week',
     `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
   if (res.ok && res.data?.[0]) {
-    S.consentedAt = res.data[0].consented_at || null;
-    S.allowAvailAdjust = !!res.data[0].allow_avail_adjust;
+    const r = res.data[0];
+    S.consentedAt = r.consented_at || null;
+    S.allowAvailAdjust = !!r.allow_avail_adjust;
+    S.maxHours = (r.max_hours_per_week ?? null);
+    S.maxDays = (r.max_days_per_week ?? null);
+    S.extraHoursRequested = (r.extra_hours_requested ?? null);
+    S.extraHoursWeek = (r.extra_hours_week ?? null);
     persist();
+    fillMyLimits();
   }
 }
 
@@ -1851,7 +1928,7 @@ function renderDayPanel() {
 }
 
 /* ── Slot CRUD ── */
-let availMode = 'times';   // 'times' | 'pattern'
+let availMode = 'times';   // 'times' | 'shift'
 
 // Build 15-minute time options (00:00 .. 23:45) with am/pm labels
 function timeOptionsHtml(selected) {
@@ -1875,11 +1952,11 @@ function openAddSlot() {
   document.getElementById('slot-note').value  = '';
   fillTimeSelect('slot-start', '09:00');
   fillTimeSelect('slot-end', '17:00');
-  // populate pattern dropdown (staff can pick a manager-made pattern)
-  const pick = document.getElementById('slot-pattern');
+  // populate shift dropdown (staff can pick a manager-made shift)
+  const pick = document.getElementById('slot-shift');
   pick.innerHTML = '<option value="">— choose —</option>' +
     (S.patterns||[]).map(p => `<option value="${p.id}">${p.label}</option>`).join('');
-  document.getElementById('slot-pattern-preview').textContent = '';
+  document.getElementById('slot-shift-preview').textContent = '';
   setAvailMode('times');
   setType('available');
   openModal('modal-slot');
@@ -1890,12 +1967,12 @@ function setType(t) {
   document.getElementById('type-avail').className   = t === 'available' ? 'type-opt sel-avail' : 'type-opt';
   document.getElementById('type-holiday').className = t === 'holiday' ? 'type-opt sel-holiday' : 'type-opt';
   const isHol = t === 'holiday';
-  // hide mode + times + pattern when marking a day off
+  // hide mode + times + shift when marking a day off
   document.getElementById('avail-mode-row').style.display = isHol ? 'none' : 'block';
   document.getElementById('slot-note-row').style.display = isHol ? 'none' : 'block';
   if (isHol) {
     document.getElementById('time-row').style.display = 'none';
-    document.getElementById('pattern-pick-row').style.display = 'none';
+    document.getElementById('shift-pick-row').style.display = 'none';
   } else {
     setAvailMode(availMode);
   }
@@ -1905,16 +1982,16 @@ function setAvailMode(m) {
   availMode = m;
   document.getElementById('mode-times').className   = m === 'times' ? 'type-opt sel-avail' : 'type-opt';
   document.getElementById('mode-allday').className  = m === 'allday' ? 'type-opt sel-avail' : 'type-opt';
-  document.getElementById('mode-pattern').className = m === 'pattern' ? 'type-opt sel-avail' : 'type-opt';
+  document.getElementById('mode-shift').className = m === 'shift' ? 'type-opt sel-avail' : 'type-opt';
   document.getElementById('time-row').style.display = m === 'times' ? 'flex' : 'none';
-  document.getElementById('pattern-pick-row').style.display = m === 'pattern' ? 'block' : 'none';
+  document.getElementById('shift-pick-row').style.display = m === 'shift' ? 'block' : 'none';
 }
 
 function renderSlotPatternPreview() {
-  const pat = (S.patterns||[]).find(p => p.id === document.getElementById('slot-pattern').value);
-  const el = document.getElementById('slot-pattern-preview');
+  const pat = (S.patterns||[]).find(p => p.id === document.getElementById('slot-shift').value);
+  const el = document.getElementById('slot-shift-preview');
   if (!pat) { el.textContent = ''; return; }
-  if (!pat.shifts.length) { el.textContent = 'This pattern has no shifts.'; return; }
+  if (!pat.shifts.length) { el.textContent = 'This shift has no shifts.'; return; }
   el.textContent = 'Adds: ' + pat.shifts.map(s => fmtRange(s.start_time, s.end_time)).join(', ');
 }
 
@@ -1931,10 +2008,10 @@ async function confirmSlot() {
     await saveAvailRow(dstr, null, null, false, note, true);
     if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
     S.myAvail[dstr].slots.push({ start: null, end: null, note, type: 'available', allDay: true });
-  } else if (availMode === 'pattern') {
-    const pat = (S.patterns||[]).find(p => p.id === document.getElementById('slot-pattern').value);
-    if (!pat) { toast('Choose a pattern'); return; }
-    if (!pat.shifts.length) { toast('That pattern has no shifts'); return; }
+  } else if (availMode === 'shift') {
+    const pat = (S.patterns||[]).find(p => p.id === document.getElementById('slot-shift').value);
+    if (!pat) { toast('Choose a shift'); return; }
+    if (!pat.shifts.length) { toast('That shift has no shifts'); return; }
     if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
     for (const s of pat.shifts) {
       const st = s.start_time.slice(0,5), en = s.end_time.slice(0,5);
@@ -2291,7 +2368,7 @@ function renderStaffRota() {
         const list = (staffRotaData.shifts[dstr]||[]).filter(sh => (sh.department||staffRotaDept(name))===dept.key && sh.assigned.includes(name));
         let content = '';
         if (list.length) {
-          content = list.map(sh => `<div class="cell-shift ${dept.cls}"><span class="cs-label">${sh.label||deptTitle(dept.key)}</span><span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`).join('');
+          content = list.map(sh => `<div class="cell-shift ${dept.cls}">${sh.label?`<span class="cs-label">${sh.label}</span>`:''}<span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`).join('');
         }
         cells += `<td class="grid-cell" style="cursor:default;">${content}</td>`;
       });
@@ -2406,7 +2483,7 @@ async function fetchAllAvail() {
   const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
   S.presets = (pr.ok && pr.data) ? pr.data : [];
 
-  // Patterns + their shifts
+  // Shifts + their shifts
   const pt = await sb.from('patterns').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
   S.patterns = [];
   if (pt.ok && pt.data) {
@@ -2559,14 +2636,14 @@ function renderPatternBar() {
   const bar = document.getElementById('pattern-bar');
   if (!bar) return;
   if (!S.patterns.length) {
-    bar.innerHTML = '<div class="pbar"><div class="pbar-title">Patterns</div><div style="font-size:0.78rem;color:var(--muted);padding:2px 2px 10px;">No patterns yet — create them in the Patterns tab.</div></div>';
+    bar.innerHTML = '<div class="pbar"><div class="pbar-title">Shifts</div><div style="font-size:0.78rem;color:var(--muted);padding:2px 2px 10px;">No shifts yet — create them in the Shifts tab.</div></div>';
     return;
   }
   let banner = '';
   if (S.pickedPatternId) {
     const p = S.patterns.find(x => x.id === S.pickedPatternId);
     banner = `<div class="pickup-banner">
-      <span>Tap a person's day to apply “${p ? p.label : 'pattern'}”</span>
+      <span>Tap a person's day to apply “${p ? p.label : 'shift'}”</span>
       <button class="btn btn-ghost btn-sm" onclick="cancelPatternPickup()">Cancel</button>
     </div>`;
   }
@@ -2581,7 +2658,7 @@ function renderPatternBar() {
       <span class="pc-meta">${meta} · tap or drag</span>
     </div>`;
   }).join('');
-  bar.innerHTML = `${banner}<div class="pbar"><div class="pbar-title">Patterns · tap one then a cell, or drag onto a cell</div>
+  bar.innerHTML = `${banner}<div class="pbar"><div class="pbar-title">Shifts · tap one then a cell, or drag onto a cell</div>
     <div class="pbar-strip">${chips}</div></div>`;
 }
 
@@ -2621,15 +2698,15 @@ function onCellDrop(ev, encName, dstr, deptKey) {
   if (!prev) S.pickedPatternId = null;
 }
 
-// Apply the currently picked (or dropped) pattern's shifts to one person/day
+// Apply the currently picked (or dropped) shift's shifts to one person/day
 function patternClashReason(pat, name, dstr) {
   const proposed = pat.shifts.map(s => ({ start: s.start_time, end: s.end_time, label: s.label }));
-  // 1) any pattern shift vs the person's existing shifts that day
+  // 1) any shift shift vs the person's existing shifts that day
   for (const p of proposed) {
     const c = findClash(name, dstr, p.start, p.end);
     if (c) return `would clash with ${c.label || 'an existing shift'} ${fmtRange(c.start, c.end)}`;
   }
-  // 2) pattern shifts overlapping each other
+  // 2) shift shifts overlapping each other
   for (let i = 0; i < proposed.length; i++) {
     for (let j = i+1; j < proposed.length; j++) {
       if (rangesOverlap(proposed[i].start, proposed[i].end, proposed[j].start, proposed[j].end)) {
@@ -2643,9 +2720,9 @@ function patternClashReason(pat, name, dstr) {
 async function applyPatternToCell(name, dstr) {
   const pat = S.patterns.find(p => p.id === S.pickedPatternId);
   if (!pat) return;
-  if (!pat.shifts.length) { toast('That pattern has no shifts'); return; }
+  if (!pat.shifts.length) { toast('That shift has no shifts'); return; }
 
-  // HARD BLOCK: refuse the whole pattern if it would create any overlap
+  // HARD BLOCK: refuse the whole shift if it would create any overlap
   const reason = patternClashReason(pat, name, dstr);
   if (reason) {
     S.pickedPatternId = null;
@@ -2683,9 +2760,9 @@ async function applyPatternToCell(name, dstr) {
   }
 
   const dept = staffDepartment(name);
-  // one group id per application so this pattern-on-this-day-for-this-person stays grouped
+  // one group id per application so this shift-on-this-day-for-this-person stays grouped
   const groupId = `${pat.id}-${dstr}-${name}-${Date.now()}`;
-  setLoading(true, 'Applying pattern…');
+  setLoading(true, 'Applying shift…');
   for (const s of pat.shifts) {
     const shiftId = await insertShift({
       team_id: S.teamId, date: dstr, label: s.label, department: dept,
@@ -2721,6 +2798,58 @@ function staffDepartment(name) {
 function staffAllowsAdjust(name) {
   const rec = S.staffList.find(s => s.name === name);
   return !!(rec && rec.allow_avail_adjust);
+}
+
+// A staff member's weekly limits (null = none)
+function staffMaxHours(name) {
+  const rec = S.staffList.find(s => s.name === name);
+  return rec && rec.max_hours_per_week != null ? Number(rec.max_hours_per_week) : null;
+}
+function staffMaxDays(name) {
+  const rec = S.staffList.find(s => s.name === name);
+  return rec && rec.max_days_per_week != null ? Number(rec.max_days_per_week) : null;
+}
+
+// Total scheduled hours / distinct days for a person in the week containing dstr
+function scheduledInWeek(name, dstr) {
+  const mon = monOf(new Date(dstr + 'T12:00:00'));
+  const weekDates = weekDays(mon).map(ds);
+  let hours = 0; const daysWithShift = new Set();
+  weekDates.forEach(d => {
+    (S.shifts[d] || []).forEach(sh => {
+      if ((sh.assigned || []).includes(name)) {
+        hours += shiftHours({ start: sh.start, end: sh.end });
+        daysWithShift.add(d);
+      }
+    });
+  });
+  return { hours, days: daysWithShift.size, weekDates };
+}
+
+// Would adding a shift of `addHours` on `dstr` breach the person's limits?
+// Returns null if fine, or a { type, limit, current, would } describing the breach.
+function limitBreach(name, dstr, addHours) {
+  const cur = scheduledInWeek(name, dstr);
+  const maxH = staffMaxHours(name);
+  const maxD = staffMaxDays(name);
+  if (maxH != null && (cur.hours + addHours) > maxH + 0.001) {
+    return { type: 'hours', limit: maxH, current: cur.hours, would: cur.hours + addHours };
+  }
+  // day limit: only breached if this is a NEW day for them
+  const alreadyThatDay = (S.shifts[dstr] || []).some(sh => (sh.assigned||[]).includes(name));
+  if (maxD != null && !alreadyThatDay && (cur.days + 1) > maxD) {
+    return { type: 'days', limit: maxD, current: cur.days, would: cur.days + 1 };
+  }
+  return null;
+}
+
+// Manager asks the staff member to allow more hours for a given week
+async function requestExtraHours(name, dstr, neededHours) {
+  const mon = ds(monOf(new Date(dstr + 'T12:00:00')));
+  await sb.from('staff_members').update(
+    { extra_hours_requested: Math.ceil(neededHours), extra_hours_week: mon },
+    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  toast(`Asked ${name} to allow up to ${Math.ceil(neededHours)}h that week`, 3500);
 }
 
 function shiftsForStaffDay(name, dstr) {
@@ -2858,7 +2987,7 @@ function renderShifts() {
           myShifts.forEach(sh => {
             if (sh.patternGroup) {
               if (!seenGroups[sh.patternGroup]) {
-                seenGroups[sh.patternGroup] = { type:'pattern', group: sh.patternGroup, name: sh.patternName || 'Pattern' };
+                seenGroups[sh.patternGroup] = { type:'shift', group: sh.patternGroup, name: sh.patternName || 'Shift' };
                 groups.push(seenGroups[sh.patternGroup]);
               }
             } else {
@@ -2867,14 +2996,13 @@ function renderShifts() {
           });
 
           const blocks = groups.map(g => {
-            if (g.type === 'pattern') {
-              return `<div class="cell-shift ${dept.cls} cell-pattern" onclick="event.stopPropagation(); openPatternGroup('${enc}','${dstr}','${g.group}')">
+            if (g.type === 'shift') {
+              return `<div class="cell-shift ${dept.cls} cell-shift" onclick="event.stopPropagation(); openPatternGroup('${enc}','${dstr}','${g.group}')">
                 <span class="cs-label">${g.name}</span></div>`;
             }
             const sh = g.sh;
-            const lbl = sh.label || deptTitle(dept.key);
             return `<div class="cell-shift ${dept.cls}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
-              <span class="cs-label">${lbl}</span>
+              ${sh.label?`<span class="cs-label">${sh.label}</span>`:''}
               <span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`;
           }).join('');
           const clashBadge = clash ? `<div class="cell-clash" title="This person has overlapping shifts today (across departments)">⚠ Overlap</div>` : '';
@@ -2906,7 +3034,7 @@ function renderShifts() {
 function onCellClick(encName, dstr, deptKey) {
   const name = decodeURIComponent(encName);
 
-  // If a pattern is picked up (tap-to-apply), apply it to this cell
+  // If a shift is picked up (tap-to-apply), apply it to this cell
   if (S.pickedPatternId) {
     applyPatternToCell(name, dstr);
     return;
@@ -2983,8 +3111,8 @@ async function confirmEditShift() {
   const found = findShiftById(editShiftCtx.id);
   if (found) {
     found.sh.label = label; found.sh.start = start; found.sh.end = end; found.sh.department = editShiftCtx.dept;
-    // If this shift was part of a pattern, the pattern's been customised for this day —
-    // ungroup the whole group so it shows the real individual times, not the pattern name.
+    // If this shift was part of a shift, the shift's been customised for this day —
+    // ungroup the whole group so it shows the real individual times, not the shift name.
     if (found.sh.patternGroup) {
       const grp = groupShifts(editShiftCtx.name, editShiftCtx.dstr, found.sh.patternGroup);
       await ungroupShifts(grp);
@@ -3013,7 +3141,7 @@ function openPatternGroup(encName, dstr, group) {
   const name = decodeURIComponent(encName);
   patGroupCtx = { name, dstr, group };
   const shifts = groupShifts(name, dstr, group);
-  const pname = shifts[0]?.patternName || 'Pattern';
+  const pname = shifts[0]?.patternName || 'Shift';
   const d = new Date(dstr + 'T12:00:00');
   const totalH = shifts.reduce((t,sh)=>t+shiftHours(sh),0);
   document.getElementById('patgroup-title').textContent = pname;
@@ -3041,7 +3169,7 @@ function editGroupShift(shiftId) {
   openEditShift(shiftId, encodeURIComponent(patGroupCtx.name), patGroupCtx.dstr);
 }
 
-// Clear the pattern tag from a set of shifts so they display individually
+// Clear the shift tag from a set of shifts so they display individually
 async function ungroupShifts(shifts) {
   for (const sh of shifts) {
     await updateShift(sh.id, { pattern_name: null, pattern_group: null });
@@ -3054,7 +3182,7 @@ async function removeGroupShift(shiftId) {
   const { name, dstr, group } = patGroupCtx;
   setLoading(true, 'Updating…');
   await deleteShift(shiftId, dstr, { quiet: true });
-  // The pattern has been altered — ungroup whatever remains so it shows individually.
+  // The shift has been altered — ungroup whatever remains so it shows individually.
   const remaining = groupShifts(name, dstr, group);
   if (remaining.length) await ungroupShifts(remaining);
   setLoading(false);
@@ -3066,7 +3194,7 @@ async function removePatternGroup() {
   const { name, dstr, group } = patGroupCtx;
   const shifts = groupShifts(name, dstr, group);
   if (!shifts.length) { closeModal('modal-patgroup'); return; }
-  if (!confirm(`Remove all ${shifts.length} shifts in this pattern for ${name}?`)) return;
+  if (!confirm(`Remove all ${shifts.length} shifts in this shift for ${name}?`)) return;
   setLoading(true, 'Removing…');
   for (const sh of shifts) {
     await deleteShift(sh.id, dstr, { quiet: true });
@@ -3080,18 +3208,18 @@ async function removePatternGroup() {
 let patternPickCtx = { name: '', dstr: '', dept: 'foh' };
 function openPatternPick(name, dstr, deptKey) {
   patternPickCtx = { name, dstr, dept: deptKey || staffDepartment(name) };
-  const pick = document.getElementById('pp-pattern');
+  const pick = document.getElementById('pp-shift');
   pick.innerHTML = '<option value="">— choose —</option>' +
     S.patterns.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
-  document.getElementById('pp-shift-list').innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">Choose a pattern first.</div>';
+  document.getElementById('pp-shift-list').innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">Choose a shift first.</div>';
   err('pp-error','');
   openModal('modal-patternpick');
 }
 function renderPatternPickShifts() {
-  const pat = S.patterns.find(p => p.id === document.getElementById('pp-pattern').value);
+  const pat = S.patterns.find(p => p.id === document.getElementById('pp-shift').value);
   const list = document.getElementById('pp-shift-list');
-  if (!pat) { list.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">Choose a pattern first.</div>'; return; }
-  if (!pat.shifts.length) { list.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">This pattern has no shifts.</div>'; return; }
+  if (!pat) { list.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">Choose a shift first.</div>'; return; }
+  if (!pat.shifts.length) { list.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">This shift has no shifts.</div>'; return; }
   list.innerHTML = pat.shifts.map((s,i) => `<label class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;cursor:pointer;">
       <input type="checkbox" class="pp-check" data-i="${i}" checked style="width:auto;">
       <div class="rota-time">${fmtRange(s.start_time, s.end_time)}</div>
@@ -3099,8 +3227,8 @@ function renderPatternPickShifts() {
     </label>`).join('');
 }
 async function confirmPatternPick() {
-  const pat = S.patterns.find(p => p.id === document.getElementById('pp-pattern').value);
-  if (!pat) { err('pp-error','Choose a pattern'); return; }
+  const pat = S.patterns.find(p => p.id === document.getElementById('pp-shift').value);
+  if (!pat) { err('pp-error','Choose a shift'); return; }
   const checks = [...document.querySelectorAll('.pp-check')].filter(c => c.checked).map(c => parseInt(c.dataset.i));
   if (!checks.length) { err('pp-error','Select at least one shift'); return; }
   const { name, dstr } = patternPickCtx;
@@ -3213,14 +3341,14 @@ function applyPresetToShiftForm() {
   fillTimeSelect('shift-end', p.end_time.slice(0,5));
 }
 
-// Find a named shift (a preset, or a shift inside a pattern) whose times match start/end.
+// Find a named shift (a preset, or a shift inside a shift) whose times match start/end.
 // Returns the name to use, or null if nothing matches.
 function matchNamedShift(start, end) {
   const s = start.slice(0,5), e = end.slice(0,5);
   // 1) presets
   const preset = (S.presets||[]).find(p => p.start_time.slice(0,5) === s && p.end_time.slice(0,5) === e);
   if (preset && preset.label) return preset.label;
-  // 2) shifts inside patterns
+  // 2) shifts inside shifts
   for (const pat of (S.patterns||[])) {
     const ps = (pat.shifts||[]).find(x => x.start_time.slice(0,5) === s && x.end_time.slice(0,5) === e);
     if (ps && ps.label) return ps.label;
@@ -3229,7 +3357,7 @@ function matchNamedShift(start, end) {
 }
 
 // When the manager changes the From/To times on the Add Shift form, auto-fill the
-// label if those times match a known preset/pattern shift — but only if the label
+// label if those times match a known preset/shift shift — but only if the label
 // is empty or still a generic department/auto value (so a manual label is kept).
 function onShiftTimeChange() {
   const start = document.getElementById('shift-start').value;
@@ -3278,6 +3406,20 @@ async function confirmShift() {
       ? `${name} marked this day off (but allows adjustments). Assign anyway?`
       : `${name} hasn't said they're available then (but allows adjustments). Assign anyway?`;
     if (!confirm(msg)) return;
+  }
+
+  // Weekly limit check (max hours / max days). Manager cannot override —
+  // they may ask the staff member to allow more.
+  const addHours = shiftHours({ start, end });
+  const breach = limitBreach(name, date, addHours);
+  if (breach) {
+    if (breach.type === 'hours') {
+      const ask = confirm(`${name} would be scheduled ${breach.would.toFixed(1)}h that week, over their ${breach.limit}h limit.\n\nYou can't override this. Send them a request to allow up to ${Math.ceil(breach.would)}h for that week?`);
+      if (ask) await requestExtraHours(name, date, breach.would);
+    } else {
+      alert(`${name} would be working ${breach.would} days that week, over their ${breach.limit}-day limit.\n\nYou can't override this. Ask them to raise their limit if needed.`);
+    }
+    return;
   }
 
   const shiftId = await insertShift({
@@ -3577,7 +3719,7 @@ async function deletePreset(id) {
 function renderPatterns() {
   const c = document.getElementById('patterns-container');
   if (!S.patterns.length) {
-    c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No patterns yet. Group shifts into a reusable day template like “Weekday” or “Event Day”.</div></div>';
+    c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No shifts yet. Group shifts into a reusable day template like “Weekday” or “Event Day”.</div></div>';
     return;
   }
   c.innerHTML = S.patterns.map(p => {
@@ -3596,9 +3738,9 @@ function renderPatterns() {
 function openAddPattern() {
   S.editingPatternId = null;
   S.patternBuild = [];
-  document.getElementById('pattern-label').value = '';
+  document.getElementById('shift-label').value = '';
   renderPatternBuild();
-  const pick = document.getElementById('pattern-preset-pick');
+  const pick = document.getElementById('shift-preset-pick');
   pick.innerHTML = '<option value="">— choose preset —</option>' +
     S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
   openModal('modal-pattern');
@@ -3608,19 +3750,19 @@ function openEditPattern(id) {
   const p = S.patterns.find(x => x.id === id);
   if (!p) return;
   S.editingPatternId = id;
-  document.querySelector('#modal-pattern .modal-title').textContent = 'Edit Pattern';
-  document.getElementById('pattern-label').value = p.label;
+  document.querySelector('#modal-pattern .modal-title').textContent = 'Edit Shift';
+  document.getElementById('shift-label').value = p.label;
   // load existing shifts into the builder
   S.patternBuild = p.shifts.map(s => ({ label: s.label, start: s.start_time, end: s.end_time }));
   renderPatternBuild();
-  const pick = document.getElementById('pattern-preset-pick');
+  const pick = document.getElementById('shift-preset-pick');
   pick.innerHTML = '<option value="">— choose preset —</option>' +
     S.presets.map(pr => `<option value="${pr.id}">${pr.label} (${fmtRange(pr.start_time, pr.end_time)})</option>`).join('');
   openModal('modal-pattern');
 }
 
 function renderPatternBuild() {
-  const c = document.getElementById('pattern-build-list');
+  const c = document.getElementById('shift-build-list');
   if (!S.patternBuild.length) { c.innerHTML = '<div style="font-size:0.8rem;color:var(--muted);">No shifts added yet.</div>'; return; }
   c.innerHTML = S.patternBuild.map((s,i) => `<div class="rota-slot-row" style="border:1px solid var(--rim);border-radius:8px;">
       <div class="rota-time">${fmtRange(s.start, s.end)}</div>
@@ -3630,7 +3772,7 @@ function renderPatternBuild() {
 }
 
 function addPresetToPattern() {
-  const id = document.getElementById('pattern-preset-pick').value;
+  const id = document.getElementById('shift-preset-pick').value;
   const p = S.presets.find(x => x.id === id);
   if (!p) { toast('Choose a preset first'); return; }
   S.patternBuild.push({ label: p.label, start: p.start_time, end: p.end_time });
@@ -3640,14 +3782,14 @@ function addPresetToPattern() {
 function removePatternBuild(i) { S.patternBuild.splice(i,1); renderPatternBuild(); }
 
 async function confirmPattern() {
-  const label = document.getElementById('pattern-label').value.trim();
-  if (!label) { toast('Give the pattern a name'); return; }
+  const label = document.getElementById('shift-label').value.trim();
+  if (!label) { toast('Give the shift a name'); return; }
   if (!S.patternBuild.length) { toast('Add at least one shift'); return; }
 
   if (S.editingPatternId) {
     const patternId = S.editingPatternId;
     await sb.from('patterns').update({ label }, `id=eq.${patternId}`);
-    // replace the pattern's shifts wholesale
+    // replace the shift's shifts wholesale
     await sb.from('pattern_shifts').delete(`pattern_id=eq.${patternId}`);
     const shifts = [];
     for (const s of S.patternBuild) {
@@ -3661,12 +3803,12 @@ async function confirmPattern() {
     S.editingPatternId = null;
     closeModal('modal-pattern');
     renderPatterns();
-    toast('Pattern updated');
+    toast('Shift updated');
     return;
   }
 
   const res = await sb.from('patterns').insert({ team_id: S.teamId, label });
-  if (!res.ok || !res.data?.[0]) { toast('Could not save pattern'); return; }
+  if (!res.ok || !res.data?.[0]) { toast('Could not save shift'); return; }
   const patternId = res.data[0].id;
   const shifts = [];
   for (const s of S.patternBuild) {
@@ -3678,7 +3820,7 @@ async function confirmPattern() {
   S.patterns.push({ id: patternId, label, shifts });
   closeModal('modal-pattern');
   renderPatterns();
-  toast('Pattern saved');
+  toast('Shift saved');
 }
 
 async function deletePattern(id) {
@@ -3689,7 +3831,7 @@ async function deletePattern(id) {
 
 /* ── APPLY PATTERN over a date range ── */
 function openApplyPattern() {
-  const pick = document.getElementById('apply-pattern-pick');
+  const pick = document.getElementById('apply-shift-pick');
   pick.innerHTML = '<option value="">— choose —</option>' +
     S.patterns.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
   document.getElementById('apply-from').value = ds(S.mgrWeekStart);
@@ -3700,16 +3842,16 @@ function openApplyPattern() {
 }
 
 async function confirmApplyPattern() {
-  const patternId = document.getElementById('apply-pattern-pick').value;
+  const patternId = document.getElementById('apply-shift-pick').value;
   const from = document.getElementById('apply-from').value.trim();
   const to   = document.getElementById('apply-to').value.trim();
   const which = document.getElementById('apply-which').value;
   const pat = S.patterns.find(p => p.id === patternId);
-  if (!pat) { err('apply-error','Choose a pattern'); return; }
+  if (!pat) { err('apply-error','Choose a shift'); return; }
   const fromD = new Date(from + 'T12:00:00'), toD = new Date(to + 'T12:00:00');
   if (isNaN(fromD) || isNaN(toD) || fromD > toD) { err('apply-error','Check your date range (YYYY-MM-DD)'); return; }
 
-  setLoading(true, 'Applying pattern…');
+  setLoading(true, 'Applying shift…');
   let count = 0;
   for (let d = new Date(fromD); d <= toD; d.setDate(d.getDate()+1)) {
     const dow = d.getDay(); // 0 Sun .. 6 Sat
@@ -3769,7 +3911,7 @@ function renderStaffListMgr() {
       <div class="staff-avatar">${initials}</div>
       <div style="flex:1;min-width:120px;">
         <div class="staff-name">${name}</div>
-        <div class="staff-meta">Login code: ${code ? code : '— none yet —'} · ${days} day${days!==1?'s':''} avail.</div>
+        <div class="staff-meta">Login code: ${code ? code : '— none yet —'}</div>
       </div>
       <div class="staff-right" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         ${codeHtml}
@@ -3897,6 +4039,10 @@ async function wipeStaffOperational(name) {
 // "Remove" — keeps the worked-shifts archive (your business record)
 async function confirmRemoveStaff() {
   const name = deleteCtx.name;
+  const warn = `Remove ${name}?\n\n`
+    + `This deletes their login, availability and requests, but keeps their name + hours worked in your work history.\n\n`
+    + `Note: removing their login means they can't sign in or be given future shifts unless you add them again with a new login.`;
+  if (!confirm(warn)) return;
   closeModal('modal-delete-staff');
   setLoading(true, 'Archiving & removing…');
   await archiveStaffShifts(name);     // preserve name + hours worked
@@ -3914,7 +4060,10 @@ async function confirmRemoveStaff() {
 // "Full erase" — GDPR erasure: remove EVERYTHING including the archive
 async function confirmEraseStaff() {
   const name = deleteCtx.name;
-  if (!confirm(`FULL ERASE: permanently delete ALL of ${name}'s data, including their work-history record? This cannot be undone.`)) return;
+  const warn = `FULL ERASE: permanently delete ALL of ${name}'s data, including their work-history record?\n\n`
+    + `This also removes their login, so they can't sign in or be given future shifts unless you add them again with a new login.\n\n`
+    + `This cannot be undone.`;
+  if (!confirm(warn)) return;
   closeModal('modal-delete-staff');
   setLoading(true, 'Erasing all data…');
   await wipeStaffOperational(name);
@@ -3947,7 +4096,7 @@ async function setStaffDept(encName, dept) {
 /* ── Manager tabs ── */
 function switchMgrTab(tab) {
   S.mgrTab = tab;
-  ['overview','rota','patterns','staff','settings','history'].forEach(t => {
+  ['overview','rota','shifts','staff','settings','history'].forEach(t => {
     const el = document.getElementById(`mgr-tab-${t}`);
     if (el) el.style.display = t === tab ? 'block' : 'none';
     const nav = document.getElementById(`mgr-nav-${t}`);
@@ -3956,7 +4105,7 @@ function switchMgrTab(tab) {
   document.getElementById('mgr-week-nav').style.display = ['overview','rota'].includes(tab) ? 'flex' : 'none';
   if (tab === 'overview') renderMgrOverview();
   if (tab === 'rota')     renderShifts();
-  if (tab === 'patterns') { renderPresets(); renderPatterns(); }
+  if (tab === 'shifts') { renderPresets(); renderPatterns(); }
   if (tab === 'staff')    renderStaffListMgr();
   if (tab === 'history')  renderWorkHistory();
 }
