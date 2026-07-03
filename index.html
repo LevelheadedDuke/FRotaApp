@@ -484,6 +484,8 @@
     .cell-shift.c  { background: rgba(201,142,240,0.14); color: #e3c5f5; border: 1px solid rgba(201,142,240,0.3); }
     .cell-shift .cs-label { font-weight: 800; }
     .cell-shift .cs-time  { opacity: 0.9; font-weight: 600; }
+    .cell-shift.is-flex { border-style: dashed !important; }
+    .cell-shift .cs-actual { font-style: italic; opacity: 0.8; }
     .cell-off {
       border-radius: 6px; padding: 8px 5px; font-size: 0.72rem; font-weight: 700;
       background: var(--amber-dim); color: var(--amber);
@@ -826,7 +828,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03b</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03c</div>
     </div>
   </div>
 
@@ -954,6 +956,10 @@
       <div class="field" style="flex:1;"><label>From</label><select id="preset-start"></select></div>
       <div class="field" style="flex:1;"><label>To</label><select id="preset-end"></select></div>
     </div>
+    <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:0.84rem;line-height:1.4;margin:2px 0 8px;">
+      <input type="checkbox" id="preset-flexible" style="margin-top:2px;flex-shrink:0;width:18px;height:18px;">
+      <span>Flexible shift (e.g. Breakfast, Close). On the rota it shows just the name, no time. The time above is a nominal estimate for hours — you can log the actual time later.</span>
+    </label>
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-preset')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmPreset()">Save Preset</button>
@@ -1006,6 +1012,14 @@
     <div style="display:flex;gap:12px;">
       <div class="field" style="flex:1;"><label>From</label><select id="es-start"></select></div>
       <div class="field" style="flex:1;"><label>To</label><select id="es-end"></select></div>
+    </div>
+    <div id="es-flex-section" style="display:none;border-top:1px solid var(--rim);padding-top:10px;margin-top:2px;">
+      <div class="t-sub" style="margin:0 0 8px;">Flexible shift. Times above are the nominal estimate. Log the actual worked times below for accurate hours (optional).</div>
+      <div style="display:flex;gap:12px;">
+        <div class="field" style="flex:1;"><label>Actual from</label><select id="es-actual-start"></select></div>
+        <div class="field" style="flex:1;"><label>Actual to</label><select id="es-actual-end"></select></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="clearActualTimes()">Clear actual times</button>
     </div>
     <div id="es-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
     <div class="modal-row">
@@ -2274,7 +2288,8 @@ async function loadStaffRota() {
   shfData.forEach(s => {
     (staffRotaData.shifts[s.date] ||= []).push({
       id: s.id, label: s.label||'', start: s.start_time, end: s.end_time,
-      department: s.department || 'foh', assigned: asgByShift[s.id] || []
+      department: s.department || 'foh', assigned: asgByShift[s.id] || [],
+      isFlexible: !!s.is_flexible, actualStart: s.actual_start || null, actualEnd: s.actual_end || null
     });
   });
   staffRotaData.staffList = (st.ok && st.data) ? st.data : [];
@@ -2336,7 +2351,12 @@ function renderStaffRota() {
         const list = (staffRotaData.shifts[dstr]||[]).filter(sh => (sh.department||staffRotaDept(name))===dept.key && sh.assigned.includes(name));
         let content = '';
         if (list.length) {
-          content = list.map(sh => `<div class="cell-shift ${dept.cls}">${sh.label?`<span class="cs-label">${sh.label}</span>`:''}<span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`).join('');
+          content = list.map(sh => {
+            const t = sh.isFlexible
+              ? (sh.actualStart && sh.actualEnd ? `<span class="cs-time cs-actual">${fmtRange(sh.actualStart, sh.actualEnd)}</span>` : '')
+              : `<span class="cs-time">${fmtRange(sh.start, sh.end)}</span>`;
+            return `<div class="cell-shift ${dept.cls}${sh.isFlexible?' is-flex':''}">${sh.label?`<span class="cs-label">${sh.label}</span>`:''}${t}</div>`;
+          }).join('');
         }
         cells += `<td class="grid-cell" style="cursor:default;">${content}</td>`;
       });
@@ -2460,6 +2480,7 @@ async function fetchAllAvail() {
       id: s.id, label: s.label || '', start: s.start_time, end: s.end_time,
       needed: s.staff_needed || 1, department: s.department || null,
       patternName: s.pattern_name || null, patternGroup: s.pattern_group || null,
+      isFlexible: !!s.is_flexible, actualStart: s.actual_start || null, actualEnd: s.actual_end || null,
       assigned: asgByShift[s.id] || []
     });
   });
@@ -2596,12 +2617,12 @@ function buildTemplates() {
   (S.presets || []).forEach(p => { presetById[p.id] = p; });
   const singles = (S.presets || []).map(p => ({
     id: p.id, label: p.label, isGroup: false, count: 1,
-    shifts: [{ start_time: p.start_time, end_time: p.end_time, label: p.label }]
+    shifts: [{ start_time: p.start_time, end_time: p.end_time, label: p.label, is_flexible: !!p.is_flexible }]
   }));
   const groups = (S.groups || []).map(g => {
     const ids = Array.isArray(g.preset_ids) ? g.preset_ids : [];
     const shifts = ids.map(id => presetById[id]).filter(Boolean)
-      .map(p => ({ start_time: p.start_time, end_time: p.end_time, label: p.label }));
+      .map(p => ({ start_time: p.start_time, end_time: p.end_time, label: p.label, is_flexible: !!p.is_flexible }));
     return { id: 'g:' + g.id, label: g.label, isGroup: true, count: shifts.length, shifts };
   });
   // Groups first (they're the "bigger" building blocks), then singles
@@ -2740,10 +2761,10 @@ async function applyPatternToCell(name, dstr) {
   for (const s of shifts) {
     const shiftId = await insertShift({
       team_id: S.teamId, date: dstr, label: s.label || label, department: dept,
-      start_time: s.start_time, end_time: s.end_time, staff_needed: 1
+      start_time: s.start_time, end_time: s.end_time, staff_needed: 1, is_flexible: !!s.is_flexible
     }, [name]);
     if (shiftId) {
-      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label || label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name] });
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label || label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], isFlexible: !!s.is_flexible });
     }
   }
   setLoading(false);
@@ -2878,9 +2899,12 @@ function dayHasClash(name, dstr) {
 }
 
 function shiftHours(sh) {
-  // hours as a decimal from "HH:MM" start/end (no break handling for now)
-  const [sh1,sm1] = sh.start.slice(0,5).split(':').map(Number);
-  const [sh2,sm2] = sh.end.slice(0,5).split(':').map(Number);
+  // Use logged ACTUAL times when present (flexible shifts), else the nominal times.
+  const startStr = (sh.actualStart || sh.start || '').slice(0,5);
+  const endStr   = (sh.actualEnd   || sh.end   || '').slice(0,5);
+  if (!startStr || !endStr) return 0;
+  const [sh1,sm1] = startStr.split(':').map(Number);
+  const [sh2,sm2] = endStr.split(':').map(Number);
   let mins = (sh2*60+sm2) - (sh1*60+sm1);
   if (mins < 0) mins += 24*60; // overnight safety
   return mins / 60;
@@ -2968,9 +2992,12 @@ function renderShifts() {
                 <span class="cs-label">${g.name}</span></div>`;
             }
             const sh = g.sh;
-            return `<div class="cell-shift ${dept.cls}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
+            const timeHtml = sh.isFlexible
+              ? (sh.actualStart && sh.actualEnd ? `<span class="cs-time cs-actual">${fmtRange(sh.actualStart, sh.actualEnd)}</span>` : '')
+              : `<span class="cs-time">${fmtRange(sh.start, sh.end)}</span>`;
+            return `<div class="cell-shift ${dept.cls}${sh.isFlexible?' is-flex':''}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
               ${sh.label?`<span class="cs-label">${sh.label}</span>`:''}
-              <span class="cs-time">${fmtRange(sh.start, sh.end)}</span></div>`;
+              ${timeHtml}</div>`;
           }).join('');
           const clashBadge = clash ? `<div class="cell-clash" title="This person has overlapping shifts today (across departments)">⚠ Overlap</div>` : '';
           content = `${clashBadge}${blocks}<div class="cell-more" onclick="event.stopPropagation(); openDayMenu('${enc}','${dstr}')">+ add</div>`;
@@ -3057,9 +3084,27 @@ function openEditShift(shiftId, encName, dstr) {
   const pick = document.getElementById('es-preset');
   pick.innerHTML = '<option value="">— Custom —</option>' +
     S.presets.map(p => `<option value="${p.id}">${p.label} (${fmtRange(p.start_time, p.end_time)})</option>`).join('');
+
+  // Flexible section: only for flexible shifts, lets manager log actual worked times
+  editShiftCtx.isFlexible = !!sh.isFlexible;
+  const flexSec = document.getElementById('es-flex-section');
+  flexSec.style.display = sh.isFlexible ? 'block' : 'none';
+  if (sh.isFlexible) {
+    fillTimeSelect('es-actual-start', sh.actualStart ? sh.actualStart.slice(0,5) : sh.start.slice(0,5));
+    fillTimeSelect('es-actual-end', sh.actualEnd ? sh.actualEnd.slice(0,5) : sh.end.slice(0,5));
+    editShiftCtx.hasActual = !!(sh.actualStart && sh.actualEnd);
+  }
   err('es-error','');
   openModal('modal-editshift');
 }
+
+function clearActualTimes() {
+  editShiftCtx.hasActual = false;
+  const found = findShiftById(editShiftCtx.id);
+  if (found) { fillTimeSelect('es-actual-start', found.sh.start.slice(0,5)); fillTimeSelect('es-actual-end', found.sh.end.slice(0,5)); }
+  toast('Actual times will be cleared on save');
+}
+
 async function confirmEditShift() {
   const label = document.getElementById('es-label').value.trim();
   const start = document.getElementById('es-start').value;
@@ -3073,13 +3118,27 @@ async function confirmEditShift() {
     return;
   }
 
-  await updateShift(editShiftCtx.id,
-    { label: label || null, start_time: start, end_time: end, department: editShiftCtx.dept });
+  const changes = { label: label || null, start_time: start, end_time: end, department: editShiftCtx.dept };
+
+  // Actual times for flexible shifts
+  if (editShiftCtx.isFlexible) {
+    if (editShiftCtx.hasActual === false) {
+      changes.actual_start = null; changes.actual_end = null;
+    } else {
+      const as = document.getElementById('es-actual-start').value;
+      const ae = document.getElementById('es-actual-end').value;
+      if (as && ae && as < ae) { changes.actual_start = as; changes.actual_end = ae; }
+    }
+  }
+
+  await updateShift(editShiftCtx.id, changes);
   const found = findShiftById(editShiftCtx.id);
   if (found) {
     found.sh.label = label; found.sh.start = start; found.sh.end = end; found.sh.department = editShiftCtx.dept;
-    // If this shift was part of a shift, the shift's been customised for this day —
-    // ungroup the whole group so it shows the real individual times, not the shift name.
+    if (editShiftCtx.isFlexible) {
+      found.sh.actualStart = changes.actual_start !== undefined ? changes.actual_start : found.sh.actualStart;
+      found.sh.actualEnd   = changes.actual_end   !== undefined ? changes.actual_end   : found.sh.actualEnd;
+    }
     if (found.sh.patternGroup) {
       const grp = groupShifts(editShiftCtx.name, editShiftCtx.dstr, found.sh.patternGroup);
       await ungroupShifts(grp);
@@ -3608,8 +3667,8 @@ function renderPresets() {
     c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No premade shifts yet. Create reusable shifts like “Early 09:00–17:00”, then use them on the Rota tab.</div></div>';
   } else {
     c.innerHTML = S.presets.map(p => `<div class="staff-card">
-        <div style="flex:1;"><div class="staff-name">${p.label}</div>
-        <div class="staff-meta">${fmtRange(p.start_time, p.end_time)}</div></div>
+        <div style="flex:1;"><div class="staff-name">${p.label}${p.is_flexible?' <span style="font-size:0.7rem;color:var(--amber);font-weight:700;">· flexible</span>':''}</div>
+        <div class="staff-meta">${p.is_flexible ? `${fmtRange(p.start_time, p.end_time)} (nominal)` : fmtRange(p.start_time, p.end_time)}</div></div>
         <div class="staff-right" style="display:flex;gap:6px;">
           <button class="btn btn-ghost btn-sm" onclick="openEditPreset('${p.id}')">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button>
@@ -3715,6 +3774,7 @@ function openAddPreset() {
   S.editingPresetId = null;
   document.querySelector('#modal-preset .modal-title').textContent = 'New Premade Shift';
   document.getElementById('preset-label').value = '';
+  document.getElementById('preset-flexible').checked = false;
   fillTimeSelect('preset-start', '09:00');
   fillTimeSelect('preset-end', '13:00');
   openModal('modal-preset');
@@ -3726,6 +3786,7 @@ function openEditPreset(id) {
   S.editingPresetId = id;
   document.querySelector('#modal-preset .modal-title').textContent = 'Edit Premade Shift';
   document.getElementById('preset-label').value = p.label;
+  document.getElementById('preset-flexible').checked = !!p.is_flexible;
   fillTimeSelect('preset-start', p.start_time.slice(0,5));
   fillTimeSelect('preset-end', p.end_time.slice(0,5));
   openModal('modal-preset');
@@ -3735,16 +3796,17 @@ async function confirmPreset() {
   const label  = document.getElementById('preset-label').value.trim();
   const start  = document.getElementById('preset-start').value;
   const end    = document.getElementById('preset-end').value;
+  const flexible = document.getElementById('preset-flexible').checked;
   if (!label) { toast('Give the shift a name'); return; }
   if (!start || !end || start >= end) { toast('End time must be after start'); return; }
 
   if (S.editingPresetId) {
     await sb.from('shift_presets').update(
-      { label, start_time: start, end_time: end },
+      { label, start_time: start, end_time: end, is_flexible: flexible },
       `id=eq.${S.editingPresetId}`
     );
     const p = S.presets.find(x => x.id === S.editingPresetId);
-    if (p) { p.label = label; p.start_time = start; p.end_time = end; }
+    if (p) { p.label = label; p.start_time = start; p.end_time = end; p.is_flexible = flexible; }
     S.editingPresetId = null;
     closeModal('modal-preset');
     renderPresets();
@@ -3753,7 +3815,7 @@ async function confirmPreset() {
   }
 
   const res = await sb.from('shift_presets').insert({
-    team_id: S.teamId, label, start_time: start, end_time: end
+    team_id: S.teamId, label, start_time: start, end_time: end, is_flexible: flexible
   });
   if (res.ok && res.data?.[0]) S.presets.push(res.data[0]);
   closeModal('modal-preset');
