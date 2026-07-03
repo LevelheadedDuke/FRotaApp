@@ -537,6 +537,8 @@
     .pat-chip:active { cursor: grabbing; transform: scale(0.97); }
     .pat-chip.picked { border-color: var(--blue); background: var(--blue-dim); box-shadow: 0 0 0 2px rgba(79,124,255,0.25); }
     .pat-chip.dragging { opacity: 0.5; }
+    .pat-chip.is-group { border-color: rgba(160,120,255,0.5); background: rgba(160,120,255,0.08); }
+    .pat-chip.is-group.picked { border-color: var(--blue); }
     .pat-chip .pc-name { font-size: 0.82rem; font-weight: 800; }
     .pat-chip .pc-meta { font-size: 0.68rem; color: var(--muted); }
     .pickup-banner {
@@ -775,6 +777,12 @@
     </div>
     <div class="t-sub" style="padding:0 14px 6px;">Make reusable shifts here (a label and a time). On the Rota tab, tap one then a cell, or drag it onto a cell, to schedule it.</div>
     <div id="presets-container"></div>
+
+    <div class="section-header" style="margin-top:14px;"><div class="t-label">Shift Groups</div>
+      <button class="btn btn-primary btn-sm" onclick="openAddGroup()">+ New Group</button>
+    </div>
+    <div class="t-sub" style="padding:0 14px 6px;">Bundle several premade shifts under one name (e.g. a split shift). Applying a group adds all its shifts to a person's day at once.</div>
+    <div id="groups-container"></div>
   </div>
 
   <div class="scroll-body" id="mgr-tab-staff" style="display:none;">
@@ -818,7 +826,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03a</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03b</div>
     </div>
   </div>
 
@@ -949,6 +957,23 @@
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-preset')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmPreset()">Save Preset</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add / edit a shift group -->
+<div class="modal-overlay" id="modal-group">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="group-modal-title">New Group</div>
+    <div class="field"><label>Group name</label><input type="text" id="group-label" placeholder="e.g. Split Day"></div>
+    <div class="field"><label>Include these shifts</label>
+      <div id="group-preset-checks" style="display:flex;flex-direction:column;gap:6px;max-height:44vh;overflow-y:auto;"></div>
+    </div>
+    <div id="group-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
+    <div class="modal-row">
+      <button class="btn btn-ghost" onclick="closeModal('modal-group')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmGroup()">Save Group</button>
     </div>
   </div>
 </div>
@@ -1264,7 +1289,8 @@ const S = {
   maxDays: null,
   extraHoursRequested: null,
   extraHoursWeek: null,
-  presets: [],          // shift presets
+  presets: [],          // shift presets (single premade shifts)
+  groups: [],           // shift groups (bundles of presets)
   shifts: [],         // [ { id, label, shifts:[...] } ]
   shifts: {},           // { 'YYYY-MM-DD': [ { id, label, start, end, needed, assigned:[names] } ] }
   editingShiftId: null,
@@ -2412,14 +2438,17 @@ async function fetchAllAvail() {
   const st = await sb.from('staff_members').select('*', `team_id=eq.${S.teamId}&order=name.asc`);
   S.staffList = (st.ok && st.data) ? st.data : Object.keys(S.staffAvail).map(n => ({ name: n }));
 
-  // Presets
+  // Presets (single premade shifts)
   const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
   S.presets = (pr.ok && pr.data) ? pr.data : [];
-  // Premade shifts double as single-shift "templates" for the day-menu picker & bulk apply.
-  S.patterns = S.presets.map(p => ({
-    id: p.id, label: p.label,
-    shifts: [{ start_time: p.start_time, end_time: p.end_time, label: p.label }]
-  }));
+  // Groups (bundles of presets)
+  const gr = await sb.from('shift_groups').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
+  S.groups = (gr.ok && gr.data) ? gr.data : [];
+
+  // Build the unified "templates" list used by the chip bar, day-menu picker &
+  // bulk apply. Single shifts become one-shift templates; groups expand to all
+  // their presets' shifts, in preset order.
+  S.patterns = buildTemplates();
 
   // Scheduled shifts + assignments
   const { shifts: shfData, assignments: asgData } = await getShifts();
@@ -2560,29 +2589,52 @@ function timeOverlapsAvail(name, dstr, start, end) {
 }
 
 /* ── PREMADE SHIFT DRAG/TAP HELPERS ── */
+// Build the unified templates list: single premade shifts + groups (expanded).
+// Each template: { id, label, isGroup, count, shifts:[{start_time,end_time,label}] }
+function buildTemplates() {
+  const presetById = {};
+  (S.presets || []).forEach(p => { presetById[p.id] = p; });
+  const singles = (S.presets || []).map(p => ({
+    id: p.id, label: p.label, isGroup: false, count: 1,
+    shifts: [{ start_time: p.start_time, end_time: p.end_time, label: p.label }]
+  }));
+  const groups = (S.groups || []).map(g => {
+    const ids = Array.isArray(g.preset_ids) ? g.preset_ids : [];
+    const shifts = ids.map(id => presetById[id]).filter(Boolean)
+      .map(p => ({ start_time: p.start_time, end_time: p.end_time, label: p.label }));
+    return { id: 'g:' + g.id, label: g.label, isGroup: true, count: shifts.length, shifts };
+  });
+  // Groups first (they're the "bigger" building blocks), then singles
+  return [...groups, ...singles];
+}
+
 function renderPatternBar() {
   const bar = document.getElementById('pattern-bar');
   if (!bar) return;
-  if (!S.presets.length) {
+  const templates = S.patterns || [];
+  if (!templates.length) {
     bar.innerHTML = '<div class="pbar"><div class="pbar-title">Premade Shifts</div><div style="font-size:0.78rem;color:var(--muted);padding:2px 2px 10px;">No premade shifts yet — create them in the Shifts tab.</div></div>';
     return;
   }
   let banner = '';
   if (S.pickedPatternId) {
-    const p = S.presets.find(x => x.id === S.pickedPatternId);
+    const p = templates.find(x => x.id === S.pickedPatternId);
     banner = `<div class="pickup-banner">
       <span>Tap a person's day to add “${p ? p.label : 'shift'}”</span>
       <button class="btn btn-ghost btn-sm" onclick="cancelPatternPickup()">Cancel</button>
     </div>`;
   }
-  const chips = S.presets.map(p => {
+  const chips = templates.map(p => {
     const picked = S.pickedPatternId === p.id ? ' picked' : '';
-    return `<div class="pat-chip${picked}" draggable="true"
+    const meta = p.isGroup
+      ? `${p.count} shift${p.count!==1?'s':''} · tap or drag`
+      : `${fmtRange(p.shifts[0].start_time, p.shifts[0].end_time)} · tap or drag`;
+    return `<div class="pat-chip${picked}${p.isGroup?' is-group':''}" draggable="true"
         ondragstart="onPatternDragStart(event,'${p.id}')"
         ondragend="onPatternDragEnd(event)"
         onclick="pickupPattern('${p.id}')">
-      <span class="pc-name">${p.label}</span>
-      <span class="pc-meta">${fmtRange(p.start_time, p.end_time)} · tap or drag</span>
+      <span class="pc-name">${p.isGroup?'🗂 ':''}${p.label}</span>
+      <span class="pc-meta">${meta}</span>
     </div>`;
   }).join('');
   bar.innerHTML = `${banner}<div class="pbar"><div class="pbar-title">Premade Shifts · tap one then a cell, or drag onto a cell</div>
@@ -2627,36 +2679,50 @@ function onCellDrop(ev, encName, dstr, deptKey) {
 
 // Apply the currently picked (or dropped) premade shift to one person/day
 async function applyPatternToCell(name, dstr) {
-  const preset = S.presets.find(p => p.id === S.pickedPatternId);
-  if (!preset) return;
-  const start = preset.start_time, end = preset.end_time;
+  const tpl = (S.patterns || []).find(p => p.id === S.pickedPatternId);
+  if (!tpl || !tpl.shifts.length) return;
   const clearPick = () => { S.pickedPatternId = null; renderPatternBar(); renderShifts(); };
+  const label = tpl.label;
+  const shifts = tpl.shifts;  // one (single) or many (group)
 
-  // HARD BLOCK: refuse if it would overlap an existing shift that day
-  const dayShifts = shiftsForStaffDay(name, dstr);
-  if (dayShifts.some(sh => rangesOverlap(start, end, sh.start, sh.end))) {
-    clearPick();
-    toast(`Can't add “${preset.label}” to ${name}: it overlaps a shift they already have that day.`, 3800);
-    return;
+  // Validate EVERY shift in the template before applying any of them.
+  const existing = shiftsForStaffDay(name, dstr);
+  // 1) overlaps with existing shifts, and overlaps within the group itself
+  for (let i = 0; i < shifts.length; i++) {
+    const s = shifts[i];
+    if (existing.some(sh => rangesOverlap(s.start_time, s.end_time, sh.start, sh.end))) {
+      clearPick();
+      toast(`Can't add “${label}” to ${name}: ${fmtRange(s.start_time,s.end_time)} overlaps a shift they already have.`, 4000);
+      return;
+    }
+    for (let j = i+1; j < shifts.length; j++) {
+      if (rangesOverlap(s.start_time, s.end_time, shifts[j].start_time, shifts[j].end_time)) {
+        clearPick();
+        toast(`Can't add “${label}”: its own shifts overlap each other.`, 4000);
+        return;
+      }
+    }
   }
 
-  // AVAILABILITY RULE
+  // 2) availability — any shift outside stated availability?
   const av = S.staffAvail[name]?.[dstr];
-  if (!timeOverlapsAvail(name, dstr, start.slice(0,5), end.slice(0,5))) {
+  const outside = shifts.filter(s => !timeOverlapsAvail(name, dstr, s.start_time.slice(0,5), s.end_time.slice(0,5)));
+  if (outside.length) {
     if (!staffAllowsAdjust(name)) {
       clearPick();
-      const why = (av && av.holiday) ? `${name} has marked that day off` : `${name} isn't available then`;
+      const why = (av && av.holiday) ? `${name} has marked that day off` : `${name} isn't available for some of those times`;
       toast(`Can't add: ${why}, and hasn't allowed availability adjustments.`, 4200);
       return;
     }
     const msg = (av && av.holiday)
-      ? `${name} marked ${dstr} as a day off (but allows adjustments). Add “${preset.label}” anyway?`
-      : `${name} hasn't said they're available then (but allows adjustments). Add “${preset.label}” anyway?`;
+      ? `${name} marked ${dstr} as a day off (but allows adjustments). Add “${label}” anyway?`
+      : `${name} hasn't said they're available for all of “${label}” (but allows adjustments). Add anyway?`;
     if (!confirm(msg)) { clearPick(); return; }
   }
 
-  // WEEKLY LIMIT check (max hours / days)
-  const breach = limitBreach(name, dstr, shiftHours({ start, end }));
+  // 3) weekly limit — sum the whole group's hours
+  const totalHours = shifts.reduce((t, s) => t + shiftHours({ start: s.start_time, end: s.end_time }), 0);
+  const breach = limitBreach(name, dstr, totalHours);
   if (breach) {
     clearPick();
     if (breach.type === 'hours') {
@@ -2668,20 +2734,23 @@ async function applyPatternToCell(name, dstr) {
     return;
   }
 
+  // Apply all shifts in the template
   const dept = staffDepartment(name);
-  setLoading(true, 'Adding shift…');
-  const shiftId = await insertShift({
-    team_id: S.teamId, date: dstr, label: preset.label, department: dept,
-    start_time: start, end_time: end, staff_needed: 1
-  }, [name]);
-  if (shiftId) {
-    (S.shifts[dstr] ||= []).push({ id: shiftId, label: preset.label, start, end, needed: 1, department: dept, assigned: [name] });
+  setLoading(true, shifts.length > 1 ? 'Adding shifts…' : 'Adding shift…');
+  for (const s of shifts) {
+    const shiftId = await insertShift({
+      team_id: S.teamId, date: dstr, label: s.label || label, department: dept,
+      start_time: s.start_time, end_time: s.end_time, staff_needed: 1
+    }, [name]);
+    if (shiftId) {
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label || label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name] });
+    }
   }
   setLoading(false);
   S.pickedPatternId = null;
   renderPatternBar();
   renderShifts();
-  toast(`Added “${preset.label}” to ${name}`);
+  toast(shifts.length > 1 ? `Added “${label}” (${shifts.length} shifts) to ${name}` : `Added “${label}” to ${name}`);
 }
 
 function findShiftById(shiftId) {
@@ -3521,20 +3590,125 @@ async function exportRotaXlsx() {
 }
 
 /* ── PRESETS ── */
+// Load presets + groups if not already loaded, then render the Shifts tab.
+async function ensurePresetsLoaded() {
+  if (!S.presets.length && !S.groups.length) {
+    const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
+    S.presets = (pr.ok && pr.data) ? pr.data : [];
+    const gr = await sb.from('shift_groups').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
+    S.groups = (gr.ok && gr.data) ? gr.data : [];
+    S.patterns = buildTemplates();
+  }
+  renderPresets();
+}
+
 function renderPresets() {
   const c = document.getElementById('presets-container');
   if (!S.presets.length) {
     c.innerHTML = '<div class="empty-state" style="padding:24px;"><div class="et">No premade shifts yet. Create reusable shifts like “Early 09:00–17:00”, then use them on the Rota tab.</div></div>';
+  } else {
+    c.innerHTML = S.presets.map(p => `<div class="staff-card">
+        <div style="flex:1;"><div class="staff-name">${p.label}</div>
+        <div class="staff-meta">${fmtRange(p.start_time, p.end_time)}</div></div>
+        <div class="staff-right" style="display:flex;gap:6px;">
+          <button class="btn btn-ghost btn-sm" onclick="openEditPreset('${p.id}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button>
+        </div>
+      </div>`).join('');
+  }
+  renderGroups();
+  S.patterns = buildTemplates();  // keep the rota chip list in sync
+}
+
+function renderGroups() {
+  const c = document.getElementById('groups-container');
+  if (!c) return;
+  if (!S.groups.length) {
+    c.innerHTML = '<div class="empty-state" style="padding:18px;"><div class="et">No groups yet. Bundle premade shifts together (e.g. a split shift) with “+ New Group”.</div></div>';
     return;
   }
-  c.innerHTML = S.presets.map(p => `<div class="staff-card">
-      <div style="flex:1;"><div class="staff-name">${p.label}</div>
-      <div class="staff-meta">${fmtRange(p.start_time, p.end_time)}</div></div>
+  const presetById = {};
+  S.presets.forEach(p => { presetById[p.id] = p; });
+  c.innerHTML = S.groups.map(g => {
+    const ids = Array.isArray(g.preset_ids) ? g.preset_ids : [];
+    const parts = ids.map(id => presetById[id]).filter(Boolean)
+      .map(p => `${p.label} (${fmtRange(p.start_time, p.end_time)})`);
+    const summary = parts.length ? parts.join(' + ') : 'no shifts';
+    return `<div class="staff-card">
+      <div style="flex:1;"><div class="staff-name">🗂 ${g.label}</div>
+      <div class="staff-meta">${parts.length} shift${parts.length!==1?'s':''} · ${summary}</div></div>
       <div class="staff-right" style="display:flex;gap:6px;">
-        <button class="btn btn-ghost btn-sm" onclick="openEditPreset('${p.id}')">Edit</button>
-        <button class="btn btn-danger btn-sm" onclick="deletePreset('${p.id}')">Delete</button>
+        <button class="btn btn-ghost btn-sm" onclick="openEditGroup('${g.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteGroup('${g.id}')">Delete</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+}
+
+let editingGroupId = null;
+
+function renderGroupPresetChecks(selectedIds) {
+  const box = document.getElementById('group-preset-checks');
+  if (!S.presets.length) {
+    box.innerHTML = '<div class="t-sub" style="margin:0;">Make some premade shifts first — then you can bundle them into a group.</div>';
+    return;
+  }
+  box.innerHTML = S.presets.map(p => {
+    const checked = selectedIds.includes(p.id) ? 'checked' : '';
+    return `<label style="display:flex;gap:10px;align-items:center;cursor:pointer;font-size:0.86rem;padding:4px 0;">
+      <input type="checkbox" class="group-preset-cb" value="${p.id}" ${checked} style="width:18px;height:18px;flex-shrink:0;">
+      <span>${p.label} <span style="color:var(--muted);">${fmtRange(p.start_time, p.end_time)}</span></span>
+    </label>`;
+  }).join('');
+}
+
+function openAddGroup() {
+  editingGroupId = null;
+  document.getElementById('group-modal-title').textContent = 'New Group';
+  document.getElementById('group-label').value = '';
+  err('group-error','');
+  renderGroupPresetChecks([]);
+  openModal('modal-group');
+}
+
+function openEditGroup(id) {
+  const g = S.groups.find(x => x.id === id);
+  if (!g) return;
+  editingGroupId = id;
+  document.getElementById('group-modal-title').textContent = 'Edit Group';
+  document.getElementById('group-label').value = g.label;
+  err('group-error','');
+  renderGroupPresetChecks(Array.isArray(g.preset_ids) ? g.preset_ids : []);
+  openModal('modal-group');
+}
+
+async function confirmGroup() {
+  const label = document.getElementById('group-label').value.trim();
+  const ids = Array.from(document.querySelectorAll('.group-preset-cb'))
+    .filter(cb => cb.checked).map(cb => cb.value);
+  if (!label) { err('group-error','Give the group a name'); return; }
+  if (ids.length < 1) { err('group-error','Pick at least one shift for the group'); return; }
+
+  if (editingGroupId) {
+    await sb.from('shift_groups').update({ label, preset_ids: ids }, `id=eq.${editingGroupId}`);
+    const g = S.groups.find(x => x.id === editingGroupId);
+    if (g) { g.label = label; g.preset_ids = ids; }
+    editingGroupId = null;
+  } else {
+    const res = await sb.from('shift_groups').insert({ team_id: S.teamId, label, preset_ids: ids });
+    if (res.ok && res.data?.[0]) S.groups.push(res.data[0]);
+  }
+  closeModal('modal-group');
+  renderPresets();
+  toast('Group saved');
+}
+
+async function deleteGroup(id) {
+  if (!confirm('Delete this group? (The individual shifts it points to are kept.)')) return;
+  await sb.from('shift_groups').delete(`id=eq.${id}`);
+  S.groups = S.groups.filter(g => g.id !== id);
+  renderPresets();
+  toast('Group deleted');
 }
 
 function openAddPreset() {
@@ -3590,6 +3764,13 @@ async function confirmPreset() {
 async function deletePreset(id) {
   await sb.from('shift_presets').delete(`id=eq.${id}`);
   S.presets = S.presets.filter(p => p.id !== id);
+  // remove it from any groups that referenced it
+  S.groups.forEach(g => {
+    if (Array.isArray(g.preset_ids) && g.preset_ids.includes(id)) {
+      g.preset_ids = g.preset_ids.filter(x => x !== id);
+      sb.from('shift_groups').update({ preset_ids: g.preset_ids }, `id=eq.${g.id}`);
+    }
+  });
   renderPresets();
 }
 
@@ -3821,7 +4002,7 @@ function switchMgrTab(tab) {
   document.getElementById('mgr-week-nav').style.display = ['overview','rota'].includes(tab) ? 'flex' : 'none';
   if (tab === 'overview') renderMgrOverview();
   if (tab === 'rota')     renderShifts();
-  if (tab === 'patterns') { renderPresets(); }
+  if (tab === 'patterns') { ensurePresetsLoaded(); }
   if (tab === 'staff')    renderStaffListMgr();
   if (tab === 'history')  renderWorkHistory();
 }
