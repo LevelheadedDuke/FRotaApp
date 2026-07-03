@@ -828,7 +828,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03d</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03e</div>
     </div>
   </div>
 
@@ -3445,17 +3445,38 @@ async function confirmShift() {
     return;
   }
 
+  // Does this shift's times match a premade shift? If so, treat it as that
+  // premade shift: display name-only. Match on times only (start AND end).
+  const match = matchPresetByTimes(start, end);
+  let finalLabel = label;
+  let nameOnly = false;
+  let isFlexible = false;
+  if (match) {
+    nameOnly = true;                       // recognised premade time → show name only
+    isFlexible = !!match.is_flexible;
+    if (!finalLabel) finalLabel = match.label;   // fill name only if they left it blank
+  }
+
   const shiftId = await insertShift({
-    team_id: S.teamId, date, label: label || null, department: shiftFormDept,
-    start_time: start, end_time: end, staff_needed: 1
+    team_id: S.teamId, date, label: finalLabel || null, department: shiftFormDept,
+    start_time: start, end_time: end, staff_needed: 1,
+    name_only: nameOnly, is_flexible: isFlexible
   }, [name]);
   if (shiftId) {
-    const sh = { id: shiftId, label, start, end, needed: 1, department: shiftFormDept, assigned: [name] };
+    const sh = { id: shiftId, label: finalLabel, start, end, needed: 1, department: shiftFormDept, assigned: [name], nameOnly, isFlexible };
     (S.shifts[date] ||= []).push(sh);
   }
   closeModal('modal-shift');
   renderShifts();
   toast('Shift added');
+}
+
+// Find a premade shift whose start AND end exactly match the given times.
+// Times may be "HH:MM" or "HH:MM:SS"; compare on HH:MM.
+function matchPresetByTimes(start, end) {
+  const norm = t => (t || '').slice(0,5);
+  const s = norm(start), e = norm(end);
+  return (S.presets || []).find(p => norm(p.start_time) === s && norm(p.end_time) === e) || null;
 }
 
 async function deleteShift(shiftId, dstr, opts = {}) {
