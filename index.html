@@ -828,7 +828,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03c</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03d</div>
     </div>
   </div>
 
@@ -2289,7 +2289,8 @@ async function loadStaffRota() {
     (staffRotaData.shifts[s.date] ||= []).push({
       id: s.id, label: s.label||'', start: s.start_time, end: s.end_time,
       department: s.department || 'foh', assigned: asgByShift[s.id] || [],
-      isFlexible: !!s.is_flexible, actualStart: s.actual_start || null, actualEnd: s.actual_end || null
+      isFlexible: !!s.is_flexible, actualStart: s.actual_start || null, actualEnd: s.actual_end || null,
+      nameOnly: !!s.name_only
     });
   });
   staffRotaData.staffList = (st.ok && st.data) ? st.data : [];
@@ -2352,9 +2353,14 @@ function renderStaffRota() {
         let content = '';
         if (list.length) {
           content = list.map(sh => {
-            const t = sh.isFlexible
-              ? (sh.actualStart && sh.actualEnd ? `<span class="cs-time cs-actual">${fmtRange(sh.actualStart, sh.actualEnd)}</span>` : '')
-              : `<span class="cs-time">${fmtRange(sh.start, sh.end)}</span>`;
+            let t;
+            if (sh.isFlexible) {
+              t = (sh.actualStart && sh.actualEnd) ? `<span class="cs-time cs-actual">${fmtRange(sh.actualStart, sh.actualEnd)}</span>` : '';
+            } else if (sh.nameOnly) {
+              t = '';
+            } else {
+              t = `<span class="cs-time">${fmtRange(sh.start, sh.end)}</span>`;
+            }
             return `<div class="cell-shift ${dept.cls}${sh.isFlexible?' is-flex':''}">${sh.label?`<span class="cs-label">${sh.label}</span>`:''}${t}</div>`;
           }).join('');
         }
@@ -2481,6 +2487,7 @@ async function fetchAllAvail() {
       needed: s.staff_needed || 1, department: s.department || null,
       patternName: s.pattern_name || null, patternGroup: s.pattern_group || null,
       isFlexible: !!s.is_flexible, actualStart: s.actual_start || null, actualEnd: s.actual_end || null,
+      nameOnly: !!s.name_only,
       assigned: asgByShift[s.id] || []
     });
   });
@@ -2761,10 +2768,10 @@ async function applyPatternToCell(name, dstr) {
   for (const s of shifts) {
     const shiftId = await insertShift({
       team_id: S.teamId, date: dstr, label: s.label || label, department: dept,
-      start_time: s.start_time, end_time: s.end_time, staff_needed: 1, is_flexible: !!s.is_flexible
+      start_time: s.start_time, end_time: s.end_time, staff_needed: 1, is_flexible: !!s.is_flexible, name_only: true
     }, [name]);
     if (shiftId) {
-      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label || label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], isFlexible: !!s.is_flexible });
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label || label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], isFlexible: !!s.is_flexible, nameOnly: true });
     }
   }
   setLoading(false);
@@ -2992,10 +2999,20 @@ function renderShifts() {
                 <span class="cs-label">${g.name}</span></div>`;
             }
             const sh = g.sh;
-            const timeHtml = sh.isFlexible
-              ? (sh.actualStart && sh.actualEnd ? `<span class="cs-time cs-actual">${fmtRange(sh.actualStart, sh.actualEnd)}</span>` : '')
-              : `<span class="cs-time">${fmtRange(sh.start, sh.end)}</span>`;
-            return `<div class="cell-shift ${dept.cls}${sh.isFlexible?' is-flex':''}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
+            // Display rule: name-only for premade-applied shifts (nameOnly).
+            // Manual shifts show their time. Flexible shifts show a logged
+            // actual time if one exists, even when name-only.
+            let timeHtml;
+            if (sh.isFlexible) {
+              timeHtml = (sh.actualStart && sh.actualEnd)
+                ? `<span class="cs-time cs-actual">${fmtRange(sh.actualStart, sh.actualEnd)}</span>` : '';
+            } else if (sh.nameOnly) {
+              timeHtml = '';
+            } else {
+              timeHtml = `<span class="cs-time">${fmtRange(sh.start, sh.end)}</span>`;
+            }
+            const dashed = sh.isFlexible ? ' is-flex' : '';
+            return `<div class="cell-shift ${dept.cls}${dashed}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
               ${sh.label?`<span class="cs-label">${sh.label}</span>`:''}
               ${timeHtml}</div>`;
           }).join('');
