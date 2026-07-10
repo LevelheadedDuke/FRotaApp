@@ -625,7 +625,7 @@
   </div>
   <div id="setup-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
-  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">build 2026-07-10f-JWTFIX</div>
+  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">build 2026-07-10g-NOAUTH</div>
 </div>
 
 <!-- ════════ PRIVACY NOTICE ════════ -->
@@ -847,7 +847,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10f-JWTFIX</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10g-NOAUTH</div>
     </div>
   </div>
 
@@ -1245,7 +1245,7 @@ async function callLoginFunction(body) {
   try {
     const r = await fetch(`${SUPABASE_URL}/functions/v1/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_JWT}`, 'apikey': SUPABASE_ANON_JWT },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const data = await r.json().catch(() => null);
@@ -1728,7 +1728,7 @@ async function confirmSetup() {
       if (USE_LOGIN_FUNCTION) {
         // Secure path: PIN checked server-side, never read into the browser
         const lr = await callLoginFunction({ mode: 'manager', teamCode: code, pin });
-        if (!lr.ok || !lr.data?.ok) { err('setup-error', lr.data?.error || 'Login failed'); setLoading(false); return; }
+        if (!lr.ok || !lr.data?.ok) { err('setup-error', `[${lr.status}] ${lr.data?.error || 'Login failed'}`); setLoading(false); return; }
         SESSION_TOKEN = lr.data.token;
         const team = lr.data.team;
         S.mode = 'manager'; S.name = name || 'Manager'; S.teamId = team.id;
