@@ -846,7 +846,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10a</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10b</div>
     </div>
   </div>
 
@@ -1223,14 +1223,16 @@ const SUPABASE_URL  = 'https://zmoytopjameydbsdbyky.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
 
 // ── Stage 3a: authentication gateway ──
-// TEMPORARILY OFF (rolled back on 30 Jun during a Supabase platform incident
-// that stopped function setting-changes applying). Set BOTH flags back to
-// true once Supabase status is green and the Verify-JWT toggle sticks.
-const USE_LOGIN_FUNCTION = false;
+// ON: manager/staff login is verified by the secure "login" Edge Function
+// (PIN & staff codes checked server-side, never sent to the browser).
+// Requires the "login" function deployed with Verify-JWT OFF.
+const USE_LOGIN_FUNCTION = true;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
 
 // ── Stage 3b: data gateway ──
-// TEMPORARILY OFF — see note above. Set back to true together with the login flag.
+// OFF for now (staged rollout). The data function predates several newer
+// features, so leave this false until those ops are added to it. Turning it
+// on prematurely would break shifts/groups/drafts/etc.
 const USE_DATA_FUNCTION = false;
 
 async function callLoginFunction(body) {
