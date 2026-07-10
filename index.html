@@ -846,7 +846,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10d</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10f-JWTFIX</div>
     </div>
   </div>
 
@@ -1221,6 +1221,11 @@
 <script>
 const SUPABASE_URL  = 'https://zmoytopjameydbsdbyky.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
+// The Edge Function gateway validates the Authorization: Bearer header and
+// expects the classic JWT anon key (eyJ...), not the newer publishable key.
+// The publishable key is fine as the apikey for direct database REST calls,
+// but function calls (login/data) must send this JWT in the Bearer header.
+const SUPABASE_ANON_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inptb3l0b3BqYW1leWRic2RieWt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5NzUyNjksImV4cCI6MjA5NzU1MTI2OX0.rhUC6P42wWcf5PC729w4XaPR8fpyeAd33mkp_sNkXFs';
 
 // ── Stage 3a: authentication gateway ──
 // ON: manager/staff login is verified by the secure "login" Edge Function
@@ -1239,7 +1244,7 @@ async function callLoginFunction(body) {
   try {
     const r = await fetch(`${SUPABASE_URL}/functions/v1/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON}`, 'apikey': SUPABASE_ANON },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_JWT}`, 'apikey': SUPABASE_ANON_JWT },
       body: JSON.stringify(body),
     });
     const data = await r.json().catch(() => null);
@@ -1254,7 +1259,7 @@ async function callData(op, extra = {}) {
   try {
     const r = await fetch(`${SUPABASE_URL}/functions/v1/data`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON}`, 'apikey': SUPABASE_ANON },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_JWT}`, 'apikey': SUPABASE_ANON_JWT },
       body: JSON.stringify({ token: SESSION_TOKEN, op, ...extra }),
     });
     const data = await r.json().catch(() => null);
