@@ -846,7 +846,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10c</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10d</div>
     </div>
   </div>
 
@@ -1226,7 +1226,7 @@ const SUPABASE_ANON = 'sb_publishable_iXb1iQBKl7qHZUklfAhWyA_KQf75oUg';
 // ON: manager/staff login is verified by the secure "login" Edge Function
 // (PIN & staff codes checked server-side, never sent to the browser).
 // Requires the "login" function deployed with Verify-JWT OFF.
-const USE_LOGIN_FUNCTION = false;
+const USE_LOGIN_FUNCTION = true;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
 
 // ── Stage 3b: data gateway ──
