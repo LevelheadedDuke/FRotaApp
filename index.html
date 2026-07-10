@@ -167,7 +167,7 @@
     .day-chip.today .dc-num    { border: 2px solid var(--blue); color: var(--blue); }
     .day-chip.selected .dc-num { background: var(--blue); color: #fff; }
     .day-chip.has-avail .dc-name   { color: var(--green); }
-    .day-chip.has-holiday .dc-name { color: var(--amber); }
+    .day-chip.has-day off .dc-name { color: var(--amber); }
     .dc-dots { display: flex; gap: 2px; height: 5px; align-items: center; }
     .dc-dot { width: 4px; height: 4px; border-radius: 50%; }
 
@@ -248,9 +248,9 @@
       background: rgba(245,166,35,0.12); border: 1px solid rgba(245,166,35,0.3); }
     .req-banner-head { font-size: 0.82rem; font-weight: 800; color: var(--amber); }
     .req-banner-sub  { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
-    .ov td.cell-avail, .ov td.cell-holiday { white-space: normal; min-width: 92px; }
+    .ov td.cell-avail, .ov td.cell-day off { white-space: normal; min-width: 92px; }
     .nowrap { white-space: nowrap; display: inline-block; }
-    .cell-holiday { color: var(--amber); font-weight: 700; }
+    .cell-day off { color: var(--amber); font-weight: 700; }
     .cell-empty   { color: var(--rim); }
 
     /* ── ROTA BUILDER ── */
@@ -333,7 +333,7 @@
       color: var(--muted); font-size: 0.88rem; font-weight: 700; cursor: pointer;
     }
     .type-opt.sel-avail   { border-color: var(--green); background: var(--green-dim); color: var(--green); }
-    .type-opt.sel-holiday { border-color: var(--amber); background: var(--amber-dim); color: var(--amber); }
+    .type-opt.sel-day off { border-color: var(--amber); background: var(--amber-dim); color: var(--amber); }
 
     /* ── TOAST ── */
     .toast {
@@ -485,7 +485,21 @@
     .cell-shift .cs-label { font-weight: 800; }
     .cell-shift .cs-time  { opacity: 0.9; font-weight: 600; }
     .cell-shift.is-flex { border-style: dashed !important; }
+    .cell-shift.is-draft { opacity: 0.7; position: relative; }
+    .cell-shift.is-draft::after { content: 'DRAFT'; position: absolute; top: -6px; right: -4px;
+      font-size: 0.5rem; font-weight: 800; letter-spacing: 0.05em; color: #ffb84d;
+      background: var(--night); padding: 1px 3px; border-radius: 4px; border: 1px solid rgba(255,184,77,0.5); }
     .cell-shift .cs-actual { font-style: italic; opacity: 0.8; }
+    .bc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .bc-dow { text-align: center; font-size: 0.66rem; font-weight: 700; color: var(--muted); padding: 2px 0; text-transform: uppercase; }
+    .bc-empty { aspect-ratio: 1; }
+    .bc-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+      border-radius: 8px; border: 1px solid var(--rim); background: var(--night-2);
+      font-size: 0.86rem; font-weight: 600; cursor: pointer; user-select: none;
+      transition: background 0.12s, border-color 0.12s; }
+    .bc-day:active { transform: scale(0.95); }
+    .bc-day.bc-blocked { background: rgba(255,90,90,0.22); border-color: rgba(255,90,90,0.6); color: #ffd0d0; }
+    .bc-day.bc-today { outline: 2px solid var(--blue); outline-offset: -2px; }
     .cell-off {
       border-radius: 6px; padding: 8px 5px; font-size: 0.72rem; font-weight: 700;
       background: var(--amber-dim); color: var(--amber);
@@ -678,7 +692,7 @@
         </div>
       </div>
       <button class="add-btn" onclick="openAddSlot()">＋ Add Available Time</button>
-      <button class="hol-btn" id="hol-btn" onclick="toggleHoliday()">🏖 Mark as Holiday / Day Off</button>
+      <button class="hol-btn" id="hol-btn" onclick="toggleHoliday()">🏖 Mark as Day Off / Day Off</button>
     </div>
 
     <div class="card" style="margin:14px 0 0;">
@@ -754,7 +768,10 @@
 
   <div class="scroll-body" id="mgr-tab-overview">
     <div id="requests-banner" style="display:none;"></div>
-    <div style="padding:4px 14px 0;font-size:0.72rem;color:var(--muted);">Tap a day header to block/unblock time off.</div>
+    <div style="padding:6px 14px 2px;display:flex;align-items:center;gap:10px;">
+      <button class="btn btn-ghost btn-sm" onclick="openBlockCalendar()">📅 Manage blocked dates</button>
+      <span style="font-size:0.72rem;color:var(--muted);">Block days when staff must request time off.</span>
+    </div>
     <div class="ov-wrap">
       <table class="ov" id="ov-table">
         <thead><tr id="ov-head"><th>Staff</th></tr></thead>
@@ -767,7 +784,7 @@
     <div style="padding:12px 14px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-primary btn-sm" onclick="openAddShift()">+ Add Shift</button>
       <button class="btn btn-ghost btn-sm" onclick="openExport()">⤓ Export</button>
-      <button class="btn btn-green btn-sm" style="margin-left:auto;" onclick="publishShifts()">Publish</button>
+      <button class="btn btn-green btn-sm" id="publish-btn" style="margin-left:auto;" onclick="publishShifts()">Publish</button>
     </div>
     <div id="pattern-bar"></div>
     <div id="shifts-container"></div>
@@ -821,6 +838,7 @@
         <div class="t-head">Data &amp; Privacy</div>
         <div class="t-sub" style="margin:0;">Old personal data (availability, codes, time-off reasons) is kept for 12 months, then cleared. Names, shifts worked and hours are kept as your planning record.</div>
         <button class="btn btn-ghost" onclick="viewWorkHistory()">📊 View work history (kept records)</button>
+        <button class="btn btn-ghost" onclick="openHoursReport()">⏱ Hours worked report (per person)</button>
         <button class="btn btn-ghost" onclick="showPrivacyNotice('view')">📄 View privacy notice</button>
         <button class="btn btn-ghost" onclick="backupSpreadsheet()">💾 Back up everything (spreadsheet)</button>
         <button class="btn btn-ghost" onclick="backupJson()">🗄 Back up everything (full snapshot file)</button>
@@ -828,7 +846,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-03e</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · build 2026-07-10a</div>
     </div>
   </div>
 
@@ -874,7 +892,7 @@
     <div class="field"><label>Type</label>
       <div class="type-toggle">
         <button class="type-opt sel-avail" id="type-avail" onclick="setType('available')">✅ Available</button>
-        <button class="type-opt" id="type-holiday" onclick="setType('holiday')">🏖 Day Off</button>
+        <button class="type-opt" id="type-day off" onclick="setType('day off')">🏖 Day Off</button>
       </div>
     </div>
     <div id="avail-mode-row" class="field">
@@ -980,6 +998,43 @@
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-group')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmGroup()">Save Group</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hours worked report -->
+<div class="modal-overlay" id="modal-hoursreport">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Hours worked report</div>
+    <div class="t-sub" style="margin:0 0 10px;">Total hours each person worked over a period. Uses logged actual times where present, else the scheduled time. A record to support your own decisions — not legal or payroll advice.</div>
+    <div style="display:flex;gap:12px;">
+      <div class="field" style="flex:1;"><label>From</label><input type="date" id="hr-from"></div>
+      <div class="field" style="flex:1;"><label>To</label><input type="date" id="hr-to"></div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="runHoursReport()">Calculate</button>
+    <div id="hr-results" style="margin-top:12px;max-height:44vh;overflow-y:auto;"></div>
+    <div class="modal-row" style="margin-top:12px;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-hoursreport')">Close</button>
+      <button class="btn btn-ghost" onclick="exportHoursReport()">⤓ Export</button>
+    </div>
+  </div>
+</div>
+
+<!-- Blocked dates calendar -->
+<div class="modal-overlay" id="modal-blockcal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Blocked dates</div>
+    <div class="t-sub" style="margin:0 0 10px;">Tap a date to block or unblock it. On blocked days, staff can't set availability — they must request time off instead.</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="blockCalMonth(-1)">‹</button>
+      <div id="blockcal-title" style="font-weight:800;"></div>
+      <button class="btn btn-ghost btn-sm" onclick="blockCalMonth(1)">›</button>
+    </div>
+    <div id="blockcal-grid"></div>
+    <div class="modal-row" style="margin-top:12px;">
+      <button class="btn btn-primary" onclick="closeModal('modal-blockcal')">Done</button>
     </div>
   </div>
 </div>
@@ -1228,6 +1283,7 @@ async function getShifts(from, to) {
 }
 
 async function insertShift(row, assignees) {
+  if (row.published === undefined) row.published = false;  // new shifts start as draft
   if (USE_DATA_FUNCTION) {
     const res = await callData('shift_insert', { row, assignees: assignees || [] });
     return (res.ok && res.data?.ok) ? res.data.id : null;
@@ -1291,8 +1347,8 @@ const S = {
   mgrWeekStart: null,   // Date (Monday) — manager view
   selectedDate: null,   // 'YYYY-MM-DD'
   // local cache
-  myAvail: {},          // { 'YYYY-MM-DD': { slots, holiday } }
-  staffAvail: {},       // { staffName: { 'YYYY-MM-DD': { slots, holiday } } }
+  myAvail: {},          // { 'YYYY-MM-DD': { slots, day off } }
+  staffAvail: {},       // { staffName: { 'YYYY-MM-DD': { slots, day off } } }
   staffList: [],        // [ { name } ]
   blockedDays: {},      // { 'YYYY-MM-DD': true }
   timeOffRequests: [],  // [ { id, staff_name, date, reason, status } ]
@@ -1819,7 +1875,7 @@ function renderStaffWeekStrip() {
       + (dstr === S.selectedDate ? ' selected' : '')
       + (dstr === today ? ' today' : '')
       + (hasSlots   ? ' has-avail' : '')
-      + (hasHoliday ? ' has-holiday' : '');
+      + (hasHoliday ? ' has-day off' : '');
     chip.onclick = () => selectStaffDay(dstr);
     const dots = (hasSlots ? '<div class="dc-dot" style="background:var(--green)"></div>' : '')
                + (hasHoliday ? '<div class="dc-dot" style="background:var(--amber)"></div>' : '');
@@ -1883,7 +1939,7 @@ function renderDayPanel() {
       badge.innerHTML = '<span class="badge badge-red">🔒 Blocked</span>';
     }
   } else {
-    holBtn.textContent = '🏖 Mark as Day Off / Holiday';
+    holBtn.textContent = '🏖 Mark as Day Off / Day Off';
     holBtn.style.color = 'var(--amber)';
     holBtn.style.borderColor = 'rgba(245,166,35,0.3)';
     holBtn.onclick = toggleHoliday;
@@ -1898,7 +1954,7 @@ function renderDayPanel() {
   }
   list.innerHTML = '';
   if (avail.holiday) {
-    list.innerHTML = `<div class="slot-item holiday"><div><div class="slot-time">🏖 All Day</div><div class="slot-type holiday">Day Off / Holiday</div></div></div>`;
+    list.innerHTML = `<div class="slot-item day off"><div><div class="slot-time">🏖 All Day</div><div class="slot-type day off">Day Off / Day Off</div></div></div>`;
   }
   avail.slots.forEach((sl, i) => {
     const div = document.createElement('div');
@@ -1930,7 +1986,7 @@ function fillTimeSelect(id, selected) {
 function openAddSlot() {
   S.slotType = 'available';
   document.getElementById('type-avail').className   = 'type-opt sel-avail';
-  document.getElementById('type-holiday').className = 'type-opt';
+  document.getElementById('type-day off').className = 'type-opt';
   document.getElementById('slot-note').value  = '';
   fillTimeSelect('slot-start', '09:00');
   fillTimeSelect('slot-end', '17:00');
@@ -1947,8 +2003,8 @@ function openAddSlot() {
 function setType(t) {
   S.slotType = t;
   document.getElementById('type-avail').className   = t === 'available' ? 'type-opt sel-avail' : 'type-opt';
-  document.getElementById('type-holiday').className = t === 'holiday' ? 'type-opt sel-holiday' : 'type-opt';
-  const isHol = t === 'holiday';
+  document.getElementById('type-day off').className = t === 'day off' ? 'type-opt sel-day off' : 'type-opt';
+  const isHol = t === 'day off';
   // hide mode + times + shift when marking a day off
   document.getElementById('avail-mode-row').style.display = isHol ? 'none' : 'block';
   document.getElementById('slot-note-row').style.display = isHol ? 'none' : 'block';
@@ -1982,7 +2038,7 @@ async function confirmSlot() {
   const type = S.slotType;
   const note = document.getElementById('slot-note').value.trim();
 
-  if (type === 'holiday') {
+  if (type === 'day off') {
     await saveAvailRow(dstr, null, null, true, note);
     if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
     S.myAvail[dstr].holiday = true;
@@ -2132,7 +2188,7 @@ async function writeTemplateToWeek(template, weekStartDate, mode) {
       continue;
     }
     if (!S.myAvail[dstr]) S.myAvail[dstr] = { slots: [], holiday: false };
-    // holiday
+    // day off
     if (tpl.holiday && !S.myAvail[dstr].holiday) {
       await saveAvailRow(dstr, null, null, true, '');
       S.myAvail[dstr].holiday = true;
@@ -2285,7 +2341,7 @@ async function loadStaffRota() {
   asgData.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
 
   staffRotaData.shifts = {};
-  shfData.forEach(s => {
+  shfData.filter(s => s.published !== false).forEach(s => {
     (staffRotaData.shifts[s.date] ||= []).push({
       id: s.id, label: s.label||'', start: s.start_time, end: s.end_time,
       department: s.department || 'foh', assigned: asgByShift[s.id] || [],
@@ -2487,7 +2543,7 @@ async function fetchAllAvail() {
       needed: s.staff_needed || 1, department: s.department || null,
       patternName: s.pattern_name || null, patternGroup: s.pattern_group || null,
       isFlexible: !!s.is_flexible, actualStart: s.actual_start || null, actualEnd: s.actual_end || null,
-      nameOnly: !!s.name_only,
+      nameOnly: !!s.name_only, published: s.published !== false,
       assigned: asgByShift[s.id] || []
     });
   });
@@ -2555,7 +2611,7 @@ function renderMgrOverview() {
       if (!avail || (!avail.slots?.length && !avail.holiday)) {
         return `<td class="cell-empty ${S.blockedDays[dstr]?'on-blocked':''}">—</td>`;
       }
-      if (avail.holiday) return `<td class="cell-holiday ${S.blockedDays[dstr]?'on-blocked':''}">🏖 Off</td>`;
+      if (avail.holiday) return `<td class="cell-day off ${S.blockedDays[dstr]?'on-blocked':''}">🏖 Off</td>`;
       const times = avail.slots.map(s => `<span class="nowrap">${s.allDay ? 'All day' : fmtRange(s.start, s.end)}</span>`).join('<br>');
       return `<td class="cell-avail ${S.blockedDays[dstr]?'on-blocked':''}">${times}</td>`;
     }).join('');
@@ -2577,13 +2633,58 @@ async function toggleBlockedDay(dstr) {
   if (S.blockedDays[dstr]) {
     await sb.from('blocked_days').delete(`team_id=eq.${S.teamId}&date=eq.${dstr}`);
     delete S.blockedDays[dstr];
-    toast('Day unblocked');
   } else {
     await sb.from('blocked_days').insert({ team_id: S.teamId, date: dstr });
     S.blockedDays[dstr] = true;
-    toast('Day blocked — staff must request time off');
   }
   renderMgrOverview();
+}
+
+// ── Blocked-dates calendar grid ──
+let blockCalRef = null;   // Date pointing at the first of the shown month
+
+function openBlockCalendar() {
+  blockCalRef = new Date();
+  blockCalRef.setDate(1);
+  renderBlockCal();
+  openModal('modal-blockcal');
+}
+
+function blockCalMonth(delta) {
+  if (!blockCalRef) return;
+  blockCalRef.setMonth(blockCalRef.getMonth() + delta);
+  renderBlockCal();
+}
+
+function renderBlockCal() {
+  const title = document.getElementById('blockcal-title');
+  const grid  = document.getElementById('blockcal-grid');
+  if (!title || !grid) return;
+  const y = blockCalRef.getFullYear(), m = blockCalRef.getMonth();
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  title.textContent = `${monthNames[m]} ${y}`;
+
+  const first = new Date(y, m, 1);
+  const startDow = (first.getDay() + 6) % 7;   // Monday = 0
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const todayStr = ds(new Date());
+
+  let cells = '';
+  ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(d =>
+    cells += `<div class="bc-dow">${d}</div>`);
+  for (let i = 0; i < startDow; i++) cells += `<div class="bc-empty"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dstr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const blocked = !!S.blockedDays[dstr];
+    const isToday = dstr === todayStr;
+    cells += `<div class="bc-day${blocked?' bc-blocked':''}${isToday?' bc-today':''}" onclick="toggleBlockCalDay('${dstr}')">${d}</div>`;
+  }
+  grid.innerHTML = `<div class="bc-grid">${cells}</div>`;
+}
+
+async function toggleBlockCalDay(dstr) {
+  await toggleBlockedDay(dstr);   // updates DB + S.blockedDays + rerenders overview
+  renderBlockCal();               // refresh the calendar grid too
 }
 
 async function decideRequest(id, status) {
@@ -2771,7 +2872,7 @@ async function applyPatternToCell(name, dstr) {
       start_time: s.start_time, end_time: s.end_time, staff_needed: 1, is_flexible: !!s.is_flexible, name_only: true
     }, [name]);
     if (shiftId) {
-      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label || label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], isFlexible: !!s.is_flexible, nameOnly: true });
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label || label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], isFlexible: !!s.is_flexible, nameOnly: true, published: false });
     }
   }
   setLoading(false);
@@ -2932,6 +3033,13 @@ function fmtHours(h) {
 function renderShifts() {
   const days = weekDays(S.mgrWeekStart);
   document.getElementById('mgr-week-label').textContent = weekLabel(S.mgrWeekStart);
+  const pubBtn = document.getElementById('publish-btn');
+  if (pubBtn) {
+    const n = draftCountThisWeek();
+    pubBtn.textContent = n ? `Publish (${n})` : 'Published';
+    pubBtn.disabled = n === 0;
+    pubBtn.style.opacity = n === 0 ? '0.55' : '1';
+  }
   renderPatternBar();
   const container = document.getElementById('shifts-container');
   container.innerHTML = '';
@@ -3012,7 +3120,8 @@ function renderShifts() {
               timeHtml = `<span class="cs-time">${fmtRange(sh.start, sh.end)}</span>`;
             }
             const dashed = sh.isFlexible ? ' is-flex' : '';
-            return `<div class="cell-shift ${dept.cls}${dashed}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
+            const draft = (sh.published === false) ? ' is-draft' : '';
+            return `<div class="cell-shift ${dept.cls}${dashed}${draft}" onclick="event.stopPropagation(); openEditShift('${sh.id}','${enc}','${dstr}')">
               ${sh.label?`<span class="cs-label">${sh.label}</span>`:''}
               ${timeHtml}</div>`;
           }).join('');
@@ -3093,7 +3202,7 @@ function openEditShift(shiftId, encName, dstr) {
   const found = findShiftById(shiftId);
   if (!found) return;
   const sh = found.sh;
-  editShiftCtx = { id: shiftId, name: decodeURIComponent(encName), dstr, dept: sh.department || staffDepartment(decodeURIComponent(encName)) };
+  editShiftCtx = { id: shiftId, name: decodeURIComponent(encName), dstr, dept: sh.department || staffDepartment(decodeURIComponent(encName)), origStart: sh.start, origEnd: sh.end };
   setEditShiftDept(editShiftCtx.dept);
   document.getElementById('es-label').value = sh.label || '';
   fillTimeSelect('es-start', sh.start.slice(0,5));
@@ -3122,8 +3231,21 @@ function clearActualTimes() {
   toast('Actual times will be cleared on save');
 }
 
+// Abbreviate a time range for a shift label, e.g. "9-6", "9:30-3".
+// Drops am/pm; keeps :30 style minutes; a shift ending 23:00 or later → "CL".
+function abbreviateShiftLabel(start, end) {
+  const to12 = (t) => {
+    let [h, m] = t.slice(0,5).split(':').map(Number);
+    let hr = h % 12; if (hr === 0) hr = 12;
+    return m ? `${hr}:${String(m).padStart(2,'0')}` : `${hr}`;
+  };
+  const endH = Number(end.slice(0,2));
+  if (endH >= 23 || endH < 6) return 'CL';   // 11pm+ (or into the small hours) = close
+  return `${to12(start)}-${to12(end)}`;
+}
+
 async function confirmEditShift() {
-  const label = document.getElementById('es-label').value.trim();
+  const labelRaw = document.getElementById('es-label').value.trim();
   const start = document.getElementById('es-start').value;
   const end   = document.getElementById('es-end').value;
   if (!start || !end || start >= end) { err('es-error','End time must be after start time'); return; }
@@ -3135,27 +3257,51 @@ async function confirmEditShift() {
     return;
   }
 
+  // Smart relabel: if the label was auto-derived from the shift's ORIGINAL times
+  // (i.e. it matched a premade shift for those times, or an abbreviation of them),
+  // and the times have now changed so that's no longer accurate, refresh the label.
+  // A label the manager typed themselves is left alone.
+  let label = labelRaw;
+  const origStart = editShiftCtx.origStart, origEnd = editShiftCtx.origEnd;
+  const timesChanged = (start !== origStart || end !== origEnd);
+  if (timesChanged) {
+    const origPreset = matchPresetByTimes(origStart, origEnd);
+    const wasAutoLabel = labelRaw === '' ||
+      (origPreset && labelRaw === origPreset.label) ||
+      labelRaw === abbreviateShiftLabel(origStart, origEnd);
+    if (wasAutoLabel) {
+      const newPreset = matchPresetByTimes(start, end);
+      label = newPreset ? newPreset.label : abbreviateShiftLabel(start, end);
+    }
+  }
+
   const changes = { label: label || null, start_time: start, end_time: end, department: editShiftCtx.dept };
 
+  // Recompute name-only: name-only iff the (new) times match a premade shift
+  const newMatch = matchPresetByTimes(start, end);
+  changes.name_only = !!newMatch;
+  changes.is_flexible = newMatch ? !!newMatch.is_flexible : false;
+
   // Actual times for flexible shifts
-  if (editShiftCtx.isFlexible) {
+  if (changes.is_flexible) {
     if (editShiftCtx.hasActual === false) {
       changes.actual_start = null; changes.actual_end = null;
     } else {
-      const as = document.getElementById('es-actual-start').value;
-      const ae = document.getElementById('es-actual-end').value;
+      const as = document.getElementById('es-actual-start')?.value;
+      const ae = document.getElementById('es-actual-end')?.value;
       if (as && ae && as < ae) { changes.actual_start = as; changes.actual_end = ae; }
     }
+  } else {
+    changes.actual_start = null; changes.actual_end = null;
   }
 
   await updateShift(editShiftCtx.id, changes);
   const found = findShiftById(editShiftCtx.id);
   if (found) {
     found.sh.label = label; found.sh.start = start; found.sh.end = end; found.sh.department = editShiftCtx.dept;
-    if (editShiftCtx.isFlexible) {
-      found.sh.actualStart = changes.actual_start !== undefined ? changes.actual_start : found.sh.actualStart;
-      found.sh.actualEnd   = changes.actual_end   !== undefined ? changes.actual_end   : found.sh.actualEnd;
-    }
+    found.sh.nameOnly = changes.name_only; found.sh.isFlexible = changes.is_flexible;
+    found.sh.actualStart = changes.actual_start ?? null;
+    found.sh.actualEnd   = changes.actual_end ?? null;
     if (found.sh.patternGroup) {
       const grp = groupShifts(editShiftCtx.name, editShiftCtx.dstr, found.sh.patternGroup);
       await ungroupShifts(grp);
@@ -3300,7 +3446,7 @@ async function confirmPatternPick() {
       start_time: s.start_time, end_time: s.end_time, staff_needed: 1
     }, [name]);
     if (shiftId) {
-      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name] });
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], published: false });
     }
   }
   setLoading(false);
@@ -3463,7 +3609,7 @@ async function confirmShift() {
     name_only: nameOnly, is_flexible: isFlexible
   }, [name]);
   if (shiftId) {
-    const sh = { id: shiftId, label: finalLabel, start, end, needed: 1, department: shiftFormDept, assigned: [name], nameOnly, isFlexible };
+    const sh = { id: shiftId, label: finalLabel, start, end, needed: 1, department: shiftFormDept, assigned: [name], nameOnly, isFlexible, published: false };
     (S.shifts[date] ||= []).push(sh);
   }
   closeModal('modal-shift');
@@ -3486,8 +3632,34 @@ async function deleteShift(shiftId, dstr, opts = {}) {
 }
 
 async function publishShifts() {
-  // Shifts + assignments are already saved live; this is a confirmation action
-  toast('✅ Published — staff can see their shifts');
+  // Publish the shifts for the week currently shown on the Rota tab.
+  const days = weekDays(S.mgrWeekStart).map(ds);
+  const first = days[0], last = days[6];
+  const drafts = [];
+  days.forEach(d => (S.shifts[d] || []).forEach(sh => { if (sh.published === false) drafts.push(sh); }));
+
+  if (!drafts.length) { toast('Nothing new to publish this week'); return; }
+  if (!confirm(`Publish ${drafts.length} draft shift${drafts.length!==1?'s':''} for the week of ${first}? Staff will then see them.`)) return;
+
+  setLoading(true, 'Publishing…');
+  // Flip published=true for all shifts in this week's date range
+  if (USE_DATA_FUNCTION) {
+    for (const sh of drafts) { await callData('shift_update', { id: sh.id, changes: { published: true } }); }
+  } else {
+    await sb.from('shifts').update({ published: true }, `team_id=eq.${S.teamId}&date=gte.${first}&date=lte.${last}`);
+  }
+  drafts.forEach(sh => { sh.published = true; });
+  setLoading(false);
+  renderShifts();
+  toast('✅ Published — staff can now see this week');
+}
+
+// Count of unpublished shifts in the currently shown week (for the Publish button)
+function draftCountThisWeek() {
+  const days = weekDays(S.mgrWeekStart).map(ds);
+  let n = 0;
+  days.forEach(d => (S.shifts[d] || []).forEach(sh => { if (sh.published === false) n++; }));
+  return n;
 }
 
 /* ════════════════════════════════════════
@@ -4221,6 +4393,86 @@ async function backupJson() {
   setLoading(false);
   downloadBlob(JSON.stringify(data, null, 2), `rota-backup-${backupStamp()}.json`, 'application/json');
   toast('Full snapshot downloaded');
+}
+
+// ── Hours worked report (per person over a chosen period) ──
+let hoursReportData = null;   // last computed { from, to, rows:[{name,hours,shifts}] }
+
+function openHoursReport() {
+  // Default to the last 4 weeks
+  const to = new Date();
+  const from = new Date(); from.setDate(from.getDate() - 27);
+  document.getElementById('hr-from').value = ds(from);
+  document.getElementById('hr-to').value = ds(to);
+  document.getElementById('hr-results').innerHTML = '';
+  hoursReportData = null;
+  openModal('modal-hoursreport');
+}
+
+async function runHoursReport() {
+  const from = document.getElementById('hr-from').value;
+  const to   = document.getElementById('hr-to').value;
+  if (!from || !to || from > to) { toast('Pick a valid date range'); return; }
+  setLoading(true, 'Calculating…');
+
+  // Pull shifts + assignments in range. Combine live shifts with kept work history.
+  const { shifts, assignments } = await getShifts(from, to);
+  const asgByShift = {};
+  assignments.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
+
+  const totals = {};   // name → { hours, shifts }
+  shifts.forEach(s => {
+    const hrs = shiftHours({ start: s.start_time, end: s.end_time, actualStart: s.actual_start, actualEnd: s.actual_end });
+    (asgByShift[s.id] || []).forEach(name => {
+      totals[name] ||= { hours: 0, shifts: 0 };
+      totals[name].hours += hrs; totals[name].shifts += 1;
+    });
+  });
+
+  // Include archived work history in range too (worked_shifts table)
+  try {
+    const wh = await sb.from('worked_shifts').select('*', `team_id=eq.${S.teamId}&date=gte.${from}&date=lte.${to}`);
+    if (wh && wh.ok && wh.data) {
+      wh.data.forEach(r => {
+        totals[r.staff_name] ||= { hours: 0, shifts: 0 };
+        totals[r.staff_name].hours += Number(r.hours) || 0;
+        totals[r.staff_name].shifts += 1;
+      });
+    }
+  } catch (e) { /* worked_shifts may be empty; ignore */ }
+
+  setLoading(false);
+  const rows = Object.entries(totals)
+    .map(([name, t]) => ({ name, hours: t.hours, shifts: t.shifts }))
+    .sort((a, b) => byName(a.name, b.name));
+  hoursReportData = { from, to, rows };
+
+  const box = document.getElementById('hr-results');
+  if (!rows.length) {
+    box.innerHTML = '<div class="t-sub" style="margin:0;">No hours recorded in this period.</div>';
+    return;
+  }
+  const weeks = Math.max(1, Math.round((new Date(to) - new Date(from)) / (7*24*3600*1000)));
+  box.innerHTML = rows.map(r => {
+    const avg = (r.hours / weeks);
+    return `<div class="staff-card">
+      <div style="flex:1;"><div class="staff-name">${r.name}</div>
+      <div class="staff-meta">${r.shifts} shift${r.shifts!==1?'s':''} · ~${avg.toFixed(1)}h/week avg</div></div>
+      <div class="staff-right"><div style="font-weight:800;font-size:1.05rem;">${r.hours.toFixed(1)}h</div></div>
+    </div>`;
+  }).join('') + `<div class="t-sub" style="margin:10px 2px 0;">Period: ${from} to ${to} (~${weeks} week${weeks!==1?'s':''}).</div>`;
+}
+
+function exportHoursReport() {
+  if (!hoursReportData || !hoursReportData.rows.length) { toast('Run a report first'); return; }
+  if (typeof XLSX === 'undefined') { toast('Spreadsheet library still loading — try again'); return; }
+  const wb = XLSX.utils.book_new();
+  const aoa = [['Hours worked report'], ['Period', `${hoursReportData.from} to ${hoursReportData.to}`], [],
+    ['Name','Total hours','Shifts']];
+  hoursReportData.rows.forEach(r => aoa.push([r.name, Number(r.hours.toFixed(2)), r.shifts]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Hours');
+  XLSX.writeFile(wb, `hours-report-${hoursReportData.from}_to_${hoursReportData.to}.xlsx`);
+  toast('Report exported');
 }
 
 async function renderWorkHistory() {
