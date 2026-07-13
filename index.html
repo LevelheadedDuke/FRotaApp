@@ -625,7 +625,7 @@
   </div>
   <div id="setup-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
-  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.1</div>
+  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.2</div>
 </div>
 
 <!-- ════════ PRIVACY NOTICE ════════ -->
@@ -847,7 +847,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.1</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.2</div>
     </div>
   </div>
 
@@ -1143,7 +1143,7 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Add Staff Member</div>
-    <div class="t-sub">A unique 4-digit login code is created automatically. Share it with them — they log in with the team code plus this code.</div>
+    <div class="t-sub">A unique 4-digit login code is created automatically and shown ONCE. Note it down and share it with them — they log in with the team code plus this code.</div>
     <div class="field"><label>Name</label><input type="text" id="add-staff-name" placeholder="Enter name here"></div>
     <div class="field"><label>Department</label>
       <select id="add-staff-dept"></select>
@@ -1152,6 +1152,20 @@
     <div class="modal-row">
       <button class="btn btn-ghost" onclick="closeModal('modal-addstaff')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmAddStaff()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- One-time staff code reveal -->
+<div class="modal-overlay" id="modal-codereveal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Login code created</div>
+    <div class="t-sub" style="margin:0 0 6px;"><span id="codereveal-name" style="font-weight:800;"></span>'s new login code:</div>
+    <div id="codereveal-code" style="text-align:center;font-size:2.2rem;font-weight:800;letter-spacing:0.35em;padding:14px 0;"></div>
+    <div class="t-sub" style="margin:0 0 10px;">⚠️ This is the only time it will be shown. Write it down or share it with them now — it can't be viewed again, only replaced with a new one.</div>
+    <div class="modal-row">
+      <button class="btn btn-primary btn-full" onclick="closeModal('modal-codereveal')">I've noted it</button>
     </div>
   </div>
 </div>
@@ -1243,6 +1257,12 @@ let SESSION_TOKEN = null;   // signed token from the login function (kept for th
 // on prematurely would break shifts/groups/drafts/etc.
 const USE_DATA_FUNCTION = false;
 
+// Columns the app reads from staff_members. Deliberately EXCLUDES staff_code:
+// after Phase 2 the browser has no SELECT right on that column, and a '*'
+// select would fail outright. If a "column does not exist" error ever appears
+// here, run the matching *-setup.sql for the missing feature.
+const STAFF_COLS = 'id,team_id,name,department,consented_at,allow_avail_adjust,max_hours_per_week,max_days_per_week,extra_hours_requested,extra_hours_week,deletion_requested_at,standard_week';
+
 async function callLoginFunction(body) {
   try {
     const r = await fetch(`${SUPABASE_URL}/functions/v1/login`, {
@@ -1326,6 +1346,13 @@ async function deleteShiftById(id) {
 ═════════════════════════════════════════ */
 const sb = (() => {
   const h = () => ({ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${SUPABASE_ANON}` });
+  // Tables with locked-down columns: writes must ask for only the readable
+  // columns back, or PostgREST's return=representation (all columns) fails.
+  const SAFE_RETURN = {
+    teams: 'id,team_name,team_code,created_at',
+    staff_members: STAFF_COLS,
+  };
+  const retSel = (table, joiner) => SAFE_RETURN[table] ? `${joiner}select=${SAFE_RETURN[table]}` : '';
   const q = async (path, opts = {}) => {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: h(), ...opts });
     const j = await r.json().catch(() => null);
@@ -1334,9 +1361,9 @@ const sb = (() => {
   return {
     from: (table) => ({
       select: (cols = '*', params = '') => q(`${table}?select=${cols}${params ? '&' + params : ''}`),
-      insert: (body) => q(table, { method: 'POST', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'return=representation' } }),
+      insert: (body) => q(`${table}${retSel(table, '?')}`, { method: 'POST', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'return=representation' } }),
       upsert: (body, onConflict) => q(`${table}${onConflict ? '?on_conflict=' + onConflict : ''}`, { method: 'POST', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'resolution=merge-duplicates,return=minimal' } }),
-      update: (body, params) => q(`${table}?${params}`, { method: 'PATCH', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'return=representation' } }),
+      update: (body, params) => q(`${table}?${params}${retSel(table, '&')}`, { method: 'PATCH', body: JSON.stringify(body), headers: { ...h(), 'Prefer': 'return=representation' } }),
       delete: (params) => q(`${table}?${params}`, { method: 'DELETE' }),
     }),
     rpc: (fn, body) => q(`rpc/${fn}`, { method: 'POST', body: JSON.stringify(body) }),
@@ -1390,13 +1417,18 @@ function persist() {
   sessionStorage.setItem('rota_session', JSON.stringify({
     mode: S.mode, name: S.name, teamId: S.teamId,
     teamCode: S.teamCode, teamName: S.teamName, managerPin: S.managerPin,
-    staffMemberId: S.staffMemberId, consentedAt: S.consentedAt, allowAvailAdjust: S.allowAvailAdjust
+    staffMemberId: S.staffMemberId, consentedAt: S.consentedAt, allowAvailAdjust: S.allowAvailAdjust,
+    sessionToken: SESSION_TOKEN
   }));
 }
 function loadSession() {
   try {
     const d = JSON.parse(sessionStorage.getItem('rota_session'));
-    if (d && d.teamId) { Object.assign(S, d); return true; }
+    if (d && d.teamId) {
+      Object.assign(S, d);
+      if (d.sessionToken) SESSION_TOKEN = d.sessionToken;
+      return true;
+    }
   } catch {}
   return false;
 }
@@ -2353,7 +2385,7 @@ async function loadStaffRota() {
 
   // Fetch this week's shifts + assignments + the staff list (for departments)
   const { shifts: shfData, assignments: asgData } = await getShifts(first, last);
-  const st  = await sb.from('staff_members').select('*', `team_id=eq.${S.teamId}&order=name.asc`);
+  const st  = await sb.from('staff_members').select(STAFF_COLS, `team_id=eq.${S.teamId}&order=name.asc`);
 
   const asgByShift = {};
   asgData.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
@@ -2535,7 +2567,7 @@ async function fetchAllAvail() {
     }
   });
   // Staff list
-  const st = await sb.from('staff_members').select('*', `team_id=eq.${S.teamId}&order=name.asc`);
+  const st = await sb.from('staff_members').select(STAFF_COLS, `team_id=eq.${S.teamId}&order=name.asc`);
   S.staffList = (st.ok && st.data) ? st.data : Object.keys(S.staffAvail).map(n => ({ name: n }));
 
   // Presets (single premade shifts)
@@ -4065,10 +4097,22 @@ async function deletePreset(id) {
 }
 
 
-/* ── Staff list (manager) ── */
-function staffCodeFor(name) {
-  const rec = S.staffList.find(s => s.name === name);
-  return rec && rec.staff_code ? rec.staff_code : null;
+/* ── Staff list (manager) ──
+   Phase 2 security: staff login codes live ONLY server-side. The app never
+   reads them; it only knows WHO HAS a code (staff_flags op). A code is shown
+   exactly once, at the moment it's generated. */
+
+let staffFlags = {};   // name → true if they have a login code
+
+async function loadStaffFlags() {
+  const res = await callData('staff_flags');
+  if (res.ok && res.data?.ok) {
+    staffFlags = {};
+    (res.data.flags || []).forEach(f => { staffFlags[f.name] = f.has_code; });
+    renderStaffListMgr();
+  } else if (res.status === 401) {
+    // token missing/expired — handled globally by callData's toast
+  }
 }
 
 function renderStaffListMgr() {
@@ -4080,14 +4124,13 @@ function renderStaffListMgr() {
   }
   container.innerHTML = names.map(name => {
     const initials = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
-    const days = Object.keys(S.staffAvail[name]||{}).length;
     const dept = staffDepartment(name);
-    const code = staffCodeFor(name);
+    const hasCode = !!staffFlags[name];
     const rec = S.staffList.find(s => s.name === name);
     const wantsDeletion = !!(rec && rec.deletion_requested_at);
-    const codeHtml = code
-      ? `<span class="code-pill" style="font-size:0.95rem;padding:4px 10px;">${code}</span>`
-      : `<button class="btn btn-ghost btn-sm" onclick="generateStaffCode('${encodeURIComponent(name)}')">Generate code</button>`;
+    const codeHtml = hasCode
+      ? `<button class="btn btn-ghost btn-sm" onclick="generateStaffCode('${encodeURIComponent(name)}', true)">New code</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="generateStaffCode('${encodeURIComponent(name)}', false)">Generate code</button>`;
     const requestBanner = wantsDeletion
       ? `<div class="del-request-banner">
            <span>🗑 This person has requested their data be deleted.</span>
@@ -4098,7 +4141,7 @@ function renderStaffListMgr() {
       <div class="staff-avatar">${initials}</div>
       <div style="flex:1;min-width:120px;">
         <div class="staff-name">${name}</div>
-        <div class="staff-meta">Login code: ${code ? code : '— none yet —'}</div>
+        <div class="staff-meta">${hasCode ? 'Login code set 🔒 (hidden — generate a new one if forgotten)' : 'No login code yet'}</div>
       </div>
       <div class="staff-right" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         ${codeHtml}
@@ -4138,28 +4181,24 @@ async function dismissDeletionRequest(encName) {
   toast('Request dismissed');
 }
 
-// Generate a 4-digit code unique within this team
-function newStaffCode() {
-  const used = new Set(S.staffList.map(s => s.staff_code).filter(Boolean));
-  let code;
-  let guard = 0;
-  do { code = String(Math.floor(1000 + Math.random()*9000)); guard++; }
-  while (used.has(code) && guard < 10000);
-  return code;
+// One-time code reveal — the ONLY moment a code is ever visible.
+function showCodeReveal(name, code) {
+  document.getElementById('codereveal-name').textContent = name;
+  document.getElementById('codereveal-code').textContent = code;
+  openModal('modal-codereveal');
 }
 
-async function generateStaffCode(encName) {
+async function generateStaffCode(encName, isRegen) {
   const name = decodeURIComponent(encName);
-  const code = newStaffCode();
-  const res = await sb.from('staff_members').update({ staff_code: code }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
-  if (!res.ok) { toast('Could not save code'); return; }
-  const rec = S.staffList.find(s => s.name === name);
-  if (rec) rec.staff_code = code; else S.staffList.push({ name, staff_code: code, department: 'foh' });
+  if (isRegen && !confirm(`Generate a NEW code for ${name}? Their old code will stop working immediately.`)) return;
+  const res = await callData('staff_set_code', { staff_name: name });
+  if (!res.ok || !res.data?.ok) { toast(res.data?.error || 'Could not save code'); return; }
+  staffFlags[name] = true;
   renderStaffListMgr();
-  toast(`${name}'s code: ${code}`);
+  showCodeReveal(name, res.data.code);
 }
 
-/* ── Add a new staff member (manager creates name + code) ── */
+/* ── Add a new staff member (server generates the code) ── */
 function openAddStaff() {
   document.getElementById('add-staff-name').value = '';
   document.getElementById('add-staff-dept').innerHTML = DEPARTMENTS.map(x=>`<option value="${x.key}">${x.title}</option>`).join('');
@@ -4172,14 +4211,14 @@ async function confirmAddStaff() {
   const name = document.getElementById('add-staff-name').value.trim();
   const dept = document.getElementById('add-staff-dept').value;
   if (!name) { err('add-staff-error','Enter a name'); return; }
-  // allow duplicate display names (that's the whole point of codes), but each gets a unique code
-  const code = newStaffCode();
-  const res = await sb.from('staff_members').insert({ team_id: S.teamId, name, department: dept, staff_code: code });
-  if (!res.ok || !res.data?.[0]) { err('add-staff-error','Could not add staff member'); return; }
-  S.staffList.push({ name, department: dept, staff_code: code, id: res.data[0].id });
+  // allow duplicate display names (that's the whole point of codes), each gets a unique code
+  const res = await callData('staff_add', { name, department: dept });
+  if (!res.ok || !res.data?.ok) { err('add-staff-error', res.data?.error || 'Could not add staff member'); return; }
+  S.staffList.push({ name, department: dept, id: res.data.id });
+  staffFlags[name] = true;
   closeModal('modal-addstaff');
   renderStaffListMgr();
-  toast(`${name} added · code ${code}`);
+  showCodeReveal(name, res.data.code);
 }
 
 async function deleteStaffMember(encName) {
@@ -4293,7 +4332,7 @@ function switchMgrTab(tab) {
   if (tab === 'overview') renderMgrOverview();
   if (tab === 'rota')     renderShifts();
   if (tab === 'patterns') { ensurePresetsLoaded(); }
-  if (tab === 'staff')    renderStaffListMgr();
+  if (tab === 'staff')    { renderStaffListMgr(); loadStaffFlags(); }
   if (tab === 'history')  renderWorkHistory();
 }
 
@@ -4340,7 +4379,8 @@ async function gatherAllData() {
   ];
   for (const [table, filter] of pulls) {
     try {
-      const r = await sb.from(table).select('*', filter);
+      const cols = table === 'staff_members' ? STAFF_COLS : '*';
+      const r = await sb.from(table).select(cols, filter);
       out.tables[table] = (r.ok && r.data) ? r.data : [];
     } catch { out.tables[table] = []; }
   }
