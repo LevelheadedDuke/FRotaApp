@@ -625,7 +625,7 @@
   </div>
   <div id="setup-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
-  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.2</div>
+  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.3</div>
 </div>
 
 <!-- ════════ PRIVACY NOTICE ════════ -->
@@ -847,7 +847,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.2</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.3</div>
     </div>
   </div>
 
@@ -1251,11 +1251,13 @@ const SUPABASE_ANON_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const USE_LOGIN_FUNCTION = true;
 let SESSION_TOKEN = null;   // signed token from the login function (kept for the session)
 
-// ── Stage 3b: data gateway ──
-// OFF for now (staged rollout). The data function predates several newer
-// features, so leave this false until those ops are added to it. Turning it
-// on prematurely would break shifts/groups/drafts/etc.
-const USE_DATA_FUNCTION = false;
+// ── Stage 3b: data gateway (Phase 3, group A) ──
+// ON: availability + shifts/assignments route through the token-verified
+// "data" Edge Function. Requires the updated data function deployed (its
+// shift_insert knows the newer columns: flexible/name-only/drafts).
+// Other tables (presets, groups, blocked days, requests…) still go direct
+// until their ops are added — then anon table access gets revoked entirely.
+const USE_DATA_FUNCTION = true;
 
 // Columns the app reads from staff_members. Deliberately EXCLUDES staff_code:
 // after Phase 2 the browser has no SELECT right on that column, and a '*'
