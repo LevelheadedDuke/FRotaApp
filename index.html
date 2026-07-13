@@ -625,7 +625,7 @@
   </div>
   <div id="setup-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
-  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.0</div>
+  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.1</div>
 </div>
 
 <!-- ════════ PRIVACY NOTICE ════════ -->
@@ -847,7 +847,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.0</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.1</div>
     </div>
   </div>
 
@@ -1738,9 +1738,17 @@ async function confirmSetup() {
         persist();
         await initManager();
       } else {
+        // Legacy direct-login path. NOTE: since Phase 1 security, the browser
+        // can no longer read manager_pin, so this path CANNOT verify a PIN.
+        // It only runs if USE_LOGIN_FUNCTION is false — which should not happen
+        // in normal use. Fail clearly rather than silently rejecting a good PIN.
         const res = await sb.from('teams').select('*', `team_code=eq.${code}`);
         if (!res.ok || !res.data?.length) { err('setup-error','Team code not found'); setLoading(false); return; }
         const team = res.data[0];
+        if (team.manager_pin === undefined) {
+          err('setup-error','Secure login is required (the app must use the login function).');
+          setLoading(false); return;
+        }
         if (pin !== team.manager_pin) { err('setup-error','Incorrect manager PIN'); setLoading(false); return; }
 
         S.mode = 'manager'; S.name = name || 'Manager'; S.teamId = team.id;
