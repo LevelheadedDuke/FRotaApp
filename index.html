@@ -625,7 +625,7 @@
   </div>
   <div id="setup-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
-  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.4</div>
+  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.5</div>
 </div>
 
 <!-- ════════ PRIVACY NOTICE ════════ -->
@@ -847,7 +847,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.4</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.5</div>
     </div>
   </div>
 
@@ -3498,15 +3498,45 @@ async function confirmPatternPick() {
     }
   }
 
+  // Availability / days off — same rules as every other way of adding shifts
+  const av = S.staffAvail[name]?.[dstr];
+  const outside = chosen.filter(c => !timeOverlapsAvail(name, dstr, c.start.slice(0,5), c.end.slice(0,5)));
+  if (outside.length) {
+    if (!staffAllowsAdjust(name)) {
+      const why = (av && av.holiday) ? `${name} has marked that day off` : `${name} isn't available for some of those times`;
+      err('pp-error', `Can't add: ${why}, and they haven't allowed availability adjustments.`);
+      return;
+    }
+    const msg = (av && av.holiday)
+      ? `${name} marked ${dstr} as a day off (but allows adjustments). Add anyway?`
+      : `${name} hasn't said they're available for all of those times (but allows adjustments). Add anyway?`;
+    if (!confirm(msg)) return;
+  }
+
+  // Weekly limit — total hours of everything selected
+  const totalHours = chosen.reduce((t, c) => t + shiftHours({ start: c.start, end: c.end }), 0);
+  const breach = limitBreach(name, dstr, totalHours);
+  if (breach) {
+    if (breach.type === 'hours') {
+      const ask = confirm(`${name} would be scheduled ${breach.would.toFixed(1)}h that week, over their ${breach.limit}h limit.\n\nYou can't override this. Send them a request to allow up to ${Math.ceil(breach.would)}h for that week?`);
+      if (ask) await requestExtraHours(name, dstr, breach.would);
+      err('pp-error', `Over their ${breach.limit}h weekly limit.`);
+    } else {
+      err('pp-error', `${name} would be working ${breach.would} days that week, over their ${breach.limit}-day limit. You can't override this.`);
+    }
+    return;
+  }
+
   setLoading(true, 'Adding shifts…');
   for (const i of checks) {
     const s = pat.shifts[i];
     const shiftId = await insertShift({
       team_id: S.teamId, date: dstr, label: s.label, department: dept,
-      start_time: s.start_time, end_time: s.end_time, staff_needed: 1
+      start_time: s.start_time, end_time: s.end_time, staff_needed: 1,
+      is_flexible: !!s.is_flexible, name_only: true
     }, [name]);
     if (shiftId) {
-      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], published: false });
+      (S.shifts[dstr] ||= []).push({ id: shiftId, label: s.label, start: s.start_time, end: s.end_time, needed: 1, department: dept, assigned: [name], published: false, isFlexible: !!s.is_flexible, nameOnly: true });
     }
   }
   setLoading(false);
