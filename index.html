@@ -625,7 +625,7 @@
   </div>
   <div id="setup-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
-  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.3</div>
+  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.4</div>
 </div>
 
 <!-- ════════ PRIVACY NOTICE ════════ -->
@@ -847,7 +847,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.3</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.4</div>
     </div>
   </div>
 
@@ -1340,6 +1340,24 @@ async function deleteShiftById(id) {
   await sb.from('shift_assignments').delete(`shift_id=eq.${id}`);
   await sb.from('shifts').delete(`id=eq.${id}`);
 }
+
+// ── Group B gateway helpers: staff_members ──
+async function staffGet(name) {
+  if (USE_DATA_FUNCTION) {
+    const res = await callData('staff_get', name ? { staff_name: name } : {});
+    return { ok: res.ok && !!res.data?.ok, data: res.data?.data || [] };
+  }
+  const filter = `team_id=eq.${S.teamId}` + (name ? `&name=eq.${encodeURIComponent(name)}` : '') + '&order=name.asc';
+  return await sb.from('staff_members').select(STAFF_COLS, filter);
+}
+async function staffUpdate(name, changes) {
+  if (USE_DATA_FUNCTION) { await callData('staff_update', { staff_name: name, changes }); return; }
+  await sb.from('staff_members').update(changes, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+}
+async function staffSetDept(name, dept) {
+  if (USE_DATA_FUNCTION) { await callData('staff_set_dept', { staff_name: name, department: dept }); return; }
+  await sb.from('staff_members').upsert({ team_id: S.teamId, name, department: dept }, 'team_id,name');
+}
 </script>
 
 <script>
@@ -1562,8 +1580,7 @@ async function acceptPrivacy() {
   }
   setLoading(true, 'Saving…');
   const now = new Date().toISOString();
-  await sb.from('staff_members').update({ consented_at: now },
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  await staffUpdate(S.name, { consented_at: now });
   S.consentedAt = now;
   persist();
   setLoading(false);
@@ -1582,8 +1599,7 @@ function closePrivacyView() {
 
 async function toggleAllowAdjust(checked) {
   S.allowAvailAdjust = checked;
-  await sb.from('staff_members').update({ allow_avail_adjust: checked },
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  await staffUpdate(S.name, { allow_avail_adjust: checked });
   persist();
   toast(checked ? 'Manager can now adjust your availability' : 'Manager can no longer schedule you outside your availability');
 }
@@ -1594,8 +1610,7 @@ async function saveMyLimits() {
   const maxHours = hv === '' ? null : Math.max(0, parseFloat(hv));
   const maxDays  = dv === '' ? null : Math.max(0, Math.min(7, parseInt(dv, 10)));
   S.maxHours = maxHours; S.maxDays = maxDays;
-  await sb.from('staff_members').update({ max_hours_per_week: maxHours, max_days_per_week: maxDays },
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  await staffUpdate(S.name, { max_hours_per_week: maxHours, max_days_per_week: maxDays });
   toast('Weekly limits saved');
 }
 
@@ -1620,17 +1635,14 @@ async function approveExtraHours() {
   // Approving raises the stored max to the requested figure (simple, transparent approach)
   S.maxHours = S.extraHoursRequested;
   document.getElementById('max-hours-input').value = S.extraHoursRequested;
-  await sb.from('staff_members').update({
-    max_hours_per_week: S.extraHoursRequested, extra_hours_requested: null, extra_hours_week: null
-  }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  await staffUpdate(S.name, { max_hours_per_week: S.extraHoursRequested, extra_hours_requested: null, extra_hours_week: null });
   S.extraHoursRequested = null; S.extraHoursWeek = null;
   fillMyLimits();
   toast('Thanks — your manager can now schedule those hours');
 }
 
 async function declineExtraHours() {
-  await sb.from('staff_members').update({ extra_hours_requested: null, extra_hours_week: null },
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  await staffUpdate(S.name, { extra_hours_requested: null, extra_hours_week: null });
   S.extraHoursRequested = null; S.extraHoursWeek = null;
   fillMyLimits();
   toast('Declined — your limit stays as it is');
@@ -1642,8 +1654,7 @@ async function openDeleteRequest() {
     + 'Your manager will be asked to remove your information and may contact you to confirm.';
   if (!confirm(msg)) return;
   const now = new Date().toISOString();
-  await sb.from('staff_members').update({ deletion_requested_at: now },
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  await staffUpdate(S.name, { deletion_requested_at: now });
   toast('Request sent to your manager');
 }
 
@@ -1859,8 +1870,7 @@ async function initStaff() {
 
 // Re-read this staff member's consent + permission (in case it changed elsewhere)
 async function refreshMyPermission() {
-  const res = await sb.from('staff_members').select('consented_at,allow_avail_adjust,max_hours_per_week,max_days_per_week,extra_hours_requested,extra_hours_week',
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  const res = await staffGet(S.name);
   if (res.ok && res.data?.[0]) {
     const r = res.data[0];
     S.consentedAt = r.consented_at || null;
@@ -2313,7 +2323,7 @@ async function saveStandardWeek() {
   const tpl = extractWeek(S.weekStart);
   if (!templateHasContent(tpl)) { toast('This week is empty — add some availability first'); return; }
   standardWeek = tpl;
-  await sb.from('staff_members').update({ standard_week: tpl }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  await staffUpdate(S.name, { standard_week: tpl });
   closeModal('modal-standard');
   toast('Saved as your standard week ✓');
 }
@@ -2325,7 +2335,7 @@ async function applyStandardWeek() {
 }
 
 async function fetchStandardWeek() {
-  const res = await sb.from('staff_members').select('standard_week', `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(S.name)}`);
+  const res = await staffGet(S.name);
   standardWeek = (res.ok && res.data?.[0]?.standard_week) ? res.data[0].standard_week : null;
 }
 
@@ -2387,7 +2397,7 @@ async function loadStaffRota() {
 
   // Fetch this week's shifts + assignments + the staff list (for departments)
   const { shifts: shfData, assignments: asgData } = await getShifts(first, last);
-  const st  = await sb.from('staff_members').select(STAFF_COLS, `team_id=eq.${S.teamId}&order=name.asc`);
+  const st  = await staffGet();
 
   const asgByShift = {};
   asgData.forEach(a => { (asgByShift[a.shift_id] ||= []).push(a.staff_name); });
@@ -2569,7 +2579,7 @@ async function fetchAllAvail() {
     }
   });
   // Staff list
-  const st = await sb.from('staff_members').select(STAFF_COLS, `team_id=eq.${S.teamId}&order=name.asc`);
+  const st = await staffGet();
   S.staffList = (st.ok && st.data) ? st.data : Object.keys(S.staffAvail).map(n => ({ name: n }));
 
   // Presets (single premade shifts)
@@ -3000,9 +3010,7 @@ function limitBreach(name, dstr, addHours) {
 // Manager asks the staff member to allow more hours for a given week
 async function requestExtraHours(name, dstr, neededHours) {
   const mon = ds(monOf(new Date(dstr + 'T12:00:00')));
-  await sb.from('staff_members').update(
-    { extra_hours_requested: Math.ceil(neededHours), extra_hours_week: mon },
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  await staffUpdate(name, { extra_hours_requested: Math.ceil(neededHours), extra_hours_week: mon });
   toast(`Asked ${name} to allow up to ${Math.ceil(neededHours)}h that week`, 3500);
 }
 
@@ -4175,8 +4183,7 @@ function updateStaffRequestDot() {
 
 async function dismissDeletionRequest(encName) {
   const name = decodeURIComponent(encName);
-  await sb.from('staff_members').update({ deletion_requested_at: null },
-    `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
+  await staffUpdate(name, { deletion_requested_at: null });
   const rec = S.staffList.find(s => s.name === name);
   if (rec) rec.deletion_requested_at = null;
   renderStaffListMgr();
@@ -4257,6 +4264,7 @@ async function archiveStaffShifts(name) {
 
 // Remove the live operational data for a person (availability, assignments, requests, record)
 async function wipeStaffOperational(name) {
+  if (USE_DATA_FUNCTION) { await callData('staff_wipe', { staff_name: name }); return; }
   const enc = encodeURIComponent(name);
   await sb.from('availability').delete(`team_id=eq.${S.teamId}&staff_name=eq.${enc}`);
   await sb.from('shift_assignments').delete(`team_id=eq.${S.teamId}&staff_name=eq.${enc}`);
@@ -4309,14 +4317,8 @@ async function confirmEraseStaff() {
 async function setStaffDept(encName, dept) {
   const name = decodeURIComponent(encName);
   let rec = S.staffList.find(s => s.name === name);
-  if (rec) {
-    rec.department = dept;
-    await sb.from('staff_members').update({ department: dept }, `team_id=eq.${S.teamId}&name=eq.${encodeURIComponent(name)}`);
-  } else {
-    // staff exists only via availability; create a record
-    const r = await sb.from('staff_members').upsert({ team_id: S.teamId, name, department: dept }, 'team_id,name');
-    S.staffList.push({ name, department: dept });
-  }
+  await staffSetDept(name, dept);   // updates, or creates the record if it only existed via availability
+  if (rec) { rec.department = dept; } else { S.staffList.push({ name, department: dept }); }
   toast(`${name} → ${deptTitle(dept)}`);
   if (S.mgrTab === 'rota') renderShifts();
 }
