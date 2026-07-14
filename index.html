@@ -625,7 +625,7 @@
   </div>
   <div id="setup-error" style="color:var(--red);font-size:0.82rem;display:none;"></div>
   <button class="btn btn-primary btn-full" id="setup-btn" onclick="confirmSetup()">Continue</button>
-  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.5</div>
+  <div style="text-align:center;font-size:0.66rem;color:var(--muted);margin-top:16px;">v1.0.6</div>
 </div>
 
 <!-- ════════ PRIVACY NOTICE ════════ -->
@@ -847,7 +847,7 @@
       </div>
 
       <button class="btn btn-danger btn-full" onclick="confirmLogout()">Log Out</button>
-      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.5</div>
+      <div style="text-align:center;font-size:0.68rem;color:var(--muted);margin-top:14px;">Rota · v1.0.6</div>
     </div>
   </div>
 
@@ -1357,6 +1357,44 @@ async function staffUpdate(name, changes) {
 async function staffSetDept(name, dept) {
   if (USE_DATA_FUNCTION) { await callData('staff_set_dept', { staff_name: name, department: dept }); return; }
   await sb.from('staff_members').upsert({ team_id: S.teamId, name, department: dept }, 'team_id,name');
+}
+
+// ── Group C gateway helpers: presets/groups/blocked days/requests/history ──
+const TBL_ORDER = { shift_presets:'start_time.asc', shift_groups:'label.asc', blocked_days:'date.asc', time_off_requests:'created_at.asc', worked_shifts:'date.desc' };
+async function tblGet(table, filter = {}) {
+  if (USE_DATA_FUNCTION) {
+    const res = await callData('tbl_get', { table, filter });
+    return { ok: res.ok && !!res.data?.ok, data: res.data?.data || [] };
+  }
+  let params = `team_id=eq.${S.teamId}&order=${TBL_ORDER[table] || 'id.asc'}`;
+  if (filter.staff_name) params += `&staff_name=eq.${encodeURIComponent(filter.staff_name)}`;
+  if (filter.date_gte) params += `&date=gte.${filter.date_gte}`;
+  if (filter.date_lte) params += `&date=lte.${filter.date_lte}`;
+  return await sb.from(table).select('*', params);
+}
+async function tblInsert(table, row) {
+  if (USE_DATA_FUNCTION) {
+    const res = await callData('tbl_insert', { table, row });
+    return { ok: res.ok && !!res.data?.ok, data: res.data?.data || [] };
+  }
+  return await sb.from(table).insert({ team_id: S.teamId, ...row });
+}
+async function tblUpdate(table, id, changes) {
+  if (USE_DATA_FUNCTION) { await callData('tbl_update', { table, id, changes }); return; }
+  await sb.from(table).update(changes, `id=eq.${id}`);
+}
+async function tblDelete(table, idOrFilter) {
+  if (USE_DATA_FUNCTION) {
+    const body = typeof idOrFilter === 'object' ? { table, filter: idOrFilter } : { table, id: idOrFilter };
+    await callData('tbl_delete', body); return;
+  }
+  if (typeof idOrFilter === 'object') {
+    let params = `team_id=eq.${S.teamId}`;
+    if (idOrFilter.staff_name) params += `&staff_name=eq.${encodeURIComponent(idOrFilter.staff_name)}`;
+    if (idOrFilter.date) params += `&date=eq.${idOrFilter.date}`;
+    await sb.from(table).delete(params); return;
+  }
+  await sb.from(table).delete(`id=eq.${idOrFilter}`);
 }
 </script>
 
@@ -1886,7 +1924,7 @@ async function refreshMyPermission() {
 
 async function fetchPatternsForStaff() {
   // Staff can mark availability matching a manager's premade shift (a preset).
-  const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
+  const pr = await tblGet('shift_presets');
   S.presets = (pr.ok && pr.data) ? pr.data : [];
   // Represent each premade shift as a single-shift "template" for the picker.
   S.patterns = S.presets.map(p => ({
@@ -1896,7 +1934,7 @@ async function fetchPatternsForStaff() {
 }
 
 async function fetchMyRequests() {
-  const res = await sb.from('time_off_requests').select('*', `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(S.name)}`);
+  const res = await tblGet('time_off_requests', { staff_name: S.name });
   S.timeOffRequests = (res.ok && res.data) ? res.data : [];
 }
 
@@ -2355,12 +2393,10 @@ async function confirmRequestDayOff() {
   // If a denied request exists, remove it first so we file a fresh pending one
   const existing = S.timeOffRequests.find(r => r.staff_name === S.name && r.date === dstr);
   if (existing) {
-    await sb.from('time_off_requests').delete(`id=eq.${existing.id}`);
+    await tblDelete('time_off_requests', existing.id);
     S.timeOffRequests = S.timeOffRequests.filter(r => r.id !== existing.id);
   }
-  const res = await sb.from('time_off_requests').insert({
-    team_id: S.teamId, staff_name: S.name, date: dstr, reason: reason || null, status: 'pending'
-  });
+  const res = await tblInsert('time_off_requests', { staff_name: S.name, date: dstr, reason: reason || null, status: 'pending' });
   if (res.ok && res.data?.[0]) S.timeOffRequests.push(res.data[0]);
   closeModal('modal-request');
   renderStaffWeekStrip();
@@ -2373,7 +2409,7 @@ async function withdrawRequest() {
   const req = S.timeOffRequests.find(r => r.staff_name === S.name && r.date === dstr && r.status === 'pending');
   if (!req) return;
   if (!confirm('Withdraw your day-off request?')) return;
-  await sb.from('time_off_requests').delete(`id=eq.${req.id}`);
+  await tblDelete('time_off_requests', req.id);
   S.timeOffRequests = S.timeOffRequests.filter(r => r.id !== req.id);
   renderStaffWeekStrip();
   renderDayPanel();
@@ -2543,17 +2579,17 @@ async function initManager() {
 }
 
 async function fetchBlockedDays() {
-  const res = await sb.from('blocked_days').select('*', `team_id=eq.${S.teamId}`);
+  const res = await tblGet('blocked_days');
   S.blockedDays = {};
   if (res.ok && res.data) res.data.forEach(r => { S.blockedDays[r.date] = true; });
 }
 
 async function fetchTimeOffRequests() {
-  const res = await sb.from('time_off_requests').select('*', `team_id=eq.${S.teamId}&order=created_at.asc`);
+  const res = await tblGet('time_off_requests');
   let rows = (res.ok && res.data) ? res.data : [];
   // One-time cleanup: remove stray deletion-request rows left by the old version
   const strays = rows.filter(r => (r.reason||'').startsWith('[DATA DELETION REQUEST]'));
-  for (const s of strays) { await sb.from('time_off_requests').delete(`id=eq.${s.id}`); }
+  for (const s of strays) { await tblDelete('time_off_requests', s.id); }
   S.timeOffRequests = rows.filter(r => !(r.reason||'').startsWith('[DATA DELETION REQUEST]'));
 }
 
@@ -2583,10 +2619,10 @@ async function fetchAllAvail() {
   S.staffList = (st.ok && st.data) ? st.data : Object.keys(S.staffAvail).map(n => ({ name: n }));
 
   // Presets (single premade shifts)
-  const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
+  const pr = await tblGet('shift_presets');
   S.presets = (pr.ok && pr.data) ? pr.data : [];
   // Groups (bundles of presets)
-  const gr = await sb.from('shift_groups').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
+  const gr = await tblGet('shift_groups');
   S.groups = (gr.ok && gr.data) ? gr.data : [];
 
   // Build the unified "templates" list used by the chip bar, day-menu picker &
@@ -2693,10 +2729,10 @@ function renderRequestsBanner() {
 
 async function toggleBlockedDay(dstr) {
   if (S.blockedDays[dstr]) {
-    await sb.from('blocked_days').delete(`team_id=eq.${S.teamId}&date=eq.${dstr}`);
+    await tblDelete('blocked_days', { date: dstr });
     delete S.blockedDays[dstr];
   } else {
-    await sb.from('blocked_days').insert({ team_id: S.teamId, date: dstr });
+    await tblInsert('blocked_days', { date: dstr });
     S.blockedDays[dstr] = true;
   }
   renderMgrOverview();
@@ -2752,14 +2788,18 @@ async function toggleBlockCalDay(dstr) {
 async function decideRequest(id, status) {
   const req = S.timeOffRequests.find(r => r.id === id);
   if (!req) return;
-  await sb.from('time_off_requests').update({ status }, `id=eq.${id}`);
+  await tblUpdate('time_off_requests', id, { status });
   req.status = status;
   // If approved, actually mark that person off for the day
   if (status === 'approved') {
-    await sb.from('availability').insert({
-      team_id: S.teamId, staff_name: req.staff_name, date: req.date,
-      start_time: null, end_time: null, is_holiday: true, note: 'Approved time off', all_day: false
-    });
+    if (USE_DATA_FUNCTION) {
+      await callData('avail_insert', { row: { staff_name: req.staff_name, date: req.date, start_time: null, end_time: null, is_holiday: true, note: 'Approved time off', all_day: false } });
+    } else {
+      await sb.from('availability').insert({
+        team_id: S.teamId, staff_name: req.staff_name, date: req.date,
+        start_time: null, end_time: null, is_holiday: true, note: 'Approved time off', all_day: false
+      });
+    }
     if (!S.staffAvail[req.staff_name]) S.staffAvail[req.staff_name] = {};
     if (!S.staffAvail[req.staff_name][req.date]) S.staffAvail[req.staff_name][req.date] = { slots: [], holiday: false };
     S.staffAvail[req.staff_name][req.date].holiday = true;
@@ -3952,9 +3992,9 @@ async function exportRotaXlsx() {
 // Load presets + groups if not already loaded, then render the Shifts tab.
 async function ensurePresetsLoaded() {
   if (!S.presets.length && !S.groups.length) {
-    const pr = await sb.from('shift_presets').select('*', `team_id=eq.${S.teamId}&order=start_time.asc`);
+    const pr = await tblGet('shift_presets');
     S.presets = (pr.ok && pr.data) ? pr.data : [];
-    const gr = await sb.from('shift_groups').select('*', `team_id=eq.${S.teamId}&order=label.asc`);
+    const gr = await tblGet('shift_groups');
     S.groups = (gr.ok && gr.data) ? gr.data : [];
     S.patterns = buildTemplates();
   }
@@ -4049,12 +4089,12 @@ async function confirmGroup() {
   if (ids.length < 1) { err('group-error','Pick at least one shift for the group'); return; }
 
   if (editingGroupId) {
-    await sb.from('shift_groups').update({ label, preset_ids: ids }, `id=eq.${editingGroupId}`);
+    await tblUpdate('shift_groups', editingGroupId, { label, preset_ids: ids });
     const g = S.groups.find(x => x.id === editingGroupId);
     if (g) { g.label = label; g.preset_ids = ids; }
     editingGroupId = null;
   } else {
-    const res = await sb.from('shift_groups').insert({ team_id: S.teamId, label, preset_ids: ids });
+    const res = await tblInsert('shift_groups', { label, preset_ids: ids });
     if (res.ok && res.data?.[0]) S.groups.push(res.data[0]);
   }
   closeModal('modal-group');
@@ -4064,7 +4104,7 @@ async function confirmGroup() {
 
 async function deleteGroup(id) {
   if (!confirm('Delete this group? (The individual shifts it points to are kept.)')) return;
-  await sb.from('shift_groups').delete(`id=eq.${id}`);
+  await tblDelete('shift_groups', id);
   S.groups = S.groups.filter(g => g.id !== id);
   renderPresets();
   toast('Group deleted');
@@ -4101,10 +4141,7 @@ async function confirmPreset() {
   if (!start || !end || start >= end) { toast('End time must be after start'); return; }
 
   if (S.editingPresetId) {
-    await sb.from('shift_presets').update(
-      { label, start_time: start, end_time: end, is_flexible: flexible },
-      `id=eq.${S.editingPresetId}`
-    );
+    await tblUpdate('shift_presets', S.editingPresetId, { label, start_time: start, end_time: end, is_flexible: flexible });
     const p = S.presets.find(x => x.id === S.editingPresetId);
     if (p) { p.label = label; p.start_time = start; p.end_time = end; p.is_flexible = flexible; }
     S.editingPresetId = null;
@@ -4114,9 +4151,7 @@ async function confirmPreset() {
     return;
   }
 
-  const res = await sb.from('shift_presets').insert({
-    team_id: S.teamId, label, start_time: start, end_time: end, is_flexible: flexible
-  });
+  const res = await tblInsert('shift_presets', { label, start_time: start, end_time: end, is_flexible: flexible });
   if (res.ok && res.data?.[0]) S.presets.push(res.data[0]);
   closeModal('modal-preset');
   renderPresets();
@@ -4124,13 +4159,13 @@ async function confirmPreset() {
 }
 
 async function deletePreset(id) {
-  await sb.from('shift_presets').delete(`id=eq.${id}`);
+  await tblDelete('shift_presets', id);
   S.presets = S.presets.filter(p => p.id !== id);
   // remove it from any groups that referenced it
   S.groups.forEach(g => {
     if (Array.isArray(g.preset_ids) && g.preset_ids.includes(id)) {
       g.preset_ids = g.preset_ids.filter(x => x !== id);
-      sb.from('shift_groups').update({ preset_ids: g.preset_ids }, `id=eq.${g.id}`);
+      tblUpdate('shift_groups', g.id, { preset_ids: g.preset_ids });
     }
   });
   renderPresets();
@@ -4272,15 +4307,14 @@ let deleteCtx = { name: '' };
 // Archive a staff member's past + present shifts into worked_shifts before any deletion,
 // so the long-term record (name + shifts + hours) survives.
 async function archiveStaffShifts(name) {
+  if (USE_DATA_FUNCTION) { await callData('staff_archive', { staff_name: name }); return; }
   // gather all shifts this person is assigned to
   const asg = await sb.from('shift_assignments').select('*', `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
   if (!asg.ok || !asg.data?.length) return;
   const ids = asg.data.map(a => a.shift_id);
-  // fetch those shifts
   const shf = await sb.from('shifts').select('*', `team_id=eq.${S.teamId}&id=in.(${ids.join(',')})`);
   if (!shf.ok || !shf.data?.length) return;
   for (const s of shf.data) {
-    // skip if already archived (same person/date/times)
     const exists = await sb.from('worked_shifts').select('id',
       `team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}&date=eq.${s.date}&start_time=eq.${s.start_time}&end_time=eq.${s.end_time}`);
     if (exists.ok && exists.data?.length) continue;
@@ -4333,7 +4367,7 @@ async function confirmEraseStaff() {
   closeModal('modal-delete-staff');
   setLoading(true, 'Erasing all data…');
   await wipeStaffOperational(name);
-  await sb.from('worked_shifts').delete(`team_id=eq.${S.teamId}&staff_name=eq.${encodeURIComponent(name)}`);
+  await tblDelete('worked_shifts', { staff_name: name });
   S.staffList = S.staffList.filter(s => s.name !== name);
   delete S.staffAvail[name];
   await fetchAllAvail();
@@ -4523,7 +4557,7 @@ async function runHoursReport() {
 
   // Include archived work history in range too (worked_shifts table)
   try {
-    const wh = await sb.from('worked_shifts').select('*', `team_id=eq.${S.teamId}&date=gte.${from}&date=lte.${to}`);
+    const wh = await tblGet('worked_shifts', { date_gte: from, date_lte: to });
     if (wh && wh.ok && wh.data) {
       wh.data.forEach(r => {
         totals[r.staff_name] ||= { hours: 0, shifts: 0 };
@@ -4570,7 +4604,7 @@ function exportHoursReport() {
 async function renderWorkHistory() {
   const c = document.getElementById('history-container');
   c.innerHTML = '<div class="t-sub">Loading…</div>';
-  const res = await sb.from('worked_shifts').select('*', `team_id=eq.${S.teamId}&order=date.desc`);
+  const res = await tblGet('worked_shifts');
   if (!res.ok || !res.data?.length) {
     c.innerHTML = '<div class="empty-state"><div class="ei">📊</div><div>No work history yet.</div><div class="et">Records appear here when staff are removed or data cleanup runs.</div></div>';
     return;
@@ -4604,7 +4638,8 @@ async function saveTeamSettings() {
   if (newName) update.team_name = newName;
   if (newPin && newPin.length >= 4) update.manager_pin = newPin;
   if (!Object.keys(update).length) { toast('Nothing to save'); return; }
-  await sb.from('teams').update(update, `id=eq.${S.teamId}`);
+  if (USE_DATA_FUNCTION) { await callData('team_update', { changes: update }); }
+  else { await sb.from('teams').update(update, `id=eq.${S.teamId}`); }
   if (newName) { S.teamName = newName; document.getElementById('mgr-team-label').textContent = newName; }
   if (newPin)  { S.managerPin = newPin; }
   persist();
